@@ -171,9 +171,9 @@ jobs:
           $nsis = Get-ChildItem target/release/bundle/nsis/*.exe | Select-Object -First 1
           Copy-Item $nsis.FullName dist/TwinBase-Windows-Setup-x64.exe
           # Portable: the app and the CLI in one folder (needs WebView2, already on Windows 10/11).
+          # Names as installed; "TwinBase.exe" would be the same file as "twinbase.exe" on Windows.
           New-Item -ItemType Directory -Force portable | Out-Null
-          Copy-Item "target/release/twinbase-desktop.exe" "portable/TwinBase.exe"
-          Copy-Item "target/release/twinbase.exe", "LICENSE" portable/
+          Copy-Item "target/release/twinbase-desktop.exe", "target/release/twinbase.exe", "LICENSE" portable/
           Compress-Archive -Path portable/* -DestinationPath dist/TwinBase-Windows-Portable-x64.zip
           # The command line on its own, for CI machines and servers (headless mocks).
           New-Item -ItemType Directory -Force cli | Out-Null

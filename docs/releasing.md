@@ -8,7 +8,7 @@ Pull requests and pushes to `main` run the checks only.
 | File | For |
 | --- | --- |
 | `TwinBase-Windows-Setup-x64.exe` | Windows 10/11 installer (NSIS) |
-| `TwinBase-Windows-Portable-x64.zip` | Windows without installing (`TwinBase.exe` and `twinbase.exe`) |
+| `TwinBase-Windows-Portable-x64.zip` | Windows without installing (`twinbase-desktop.exe` is the app, `twinbase.exe` the CLI) |
 | `TwinBase-macOS-universal.dmg` | macOS 11+, Apple silicon and Intel in one app |
 | `TwinBase-Linux-amd64.deb`, `TwinBase-Linux-x86_64.rpm`, `TwinBase-Linux-x86_64.AppImage` | Linux x86_64 (built on Ubuntu 22.04, so they run on newer distributions) |
 | `twinbase-cli-*` | The command line alone: headless mocks for tests and CI, the MCP bridge |
