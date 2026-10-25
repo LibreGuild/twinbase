@@ -42,7 +42,7 @@ export function special(v: Json): string | undefined {
         return "undefined";
       case "$regularExpression": {
         const r = x as { pattern: string; options: string };
-        return `/${r.pattern.replace(/\//g, "\\/")}/${r.options}`;
+        return `/${regexLiteralBody(r.pattern)}/${r.options}`;
       }
       case "$timestamp": {
         const t = x as { t: number; i: number };
@@ -141,3 +141,22 @@ export const PIPELINE_STAGES: Record<string, string> = {
   $limit: "{ $limit: 20 }",
   $addFields: "{ $addFields: { total: { $sum: \"$items.price\" } } }",
 };
+
+/** A regex pattern as the body of a `/…/` literal: unescaped slashes get a backslash, existing
+ * escapes (including `\/`) stay as they are. */
+export function regexLiteralBody(pattern: string): string {
+  let out = "";
+  let escaped = false;
+  for (const ch of pattern) {
+    if (escaped) {
+      out += ch;
+      escaped = false;
+    } else if (ch === "\\") {
+      out += ch;
+      escaped = true;
+    } else {
+      out += ch === "/" ? "\\/" : ch;
+    }
+  }
+  return out;
+}
