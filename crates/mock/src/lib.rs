@@ -134,7 +134,19 @@ impl MockHandle {
 /// Start a mock server.
 pub async fn start(config: MockConfig) -> Result<MockHandle, MockError> {
     let addr = format!("{}:{}", config.host, config.port);
-    let listener = TcpListener::bind(&addr).await.map_err(|source| MockError::Bind { addr: addr.clone(), source })?;
+    // A server on this port that was just stopped (a restart or reset) can take a moment to
+    // release it while its connections close, so a busy fixed port is tried again briefly.
+    let mut attempt = 0;
+    let listener = loop {
+        match TcpListener::bind(&addr).await {
+            Ok(l) => break l,
+            Err(e) if e.kind() == std::io::ErrorKind::AddrInUse && config.port != 0 && attempt < 30 => {
+                attempt += 1;
+                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            }
+            Err(source) => return Err(MockError::Bind { addr: addr.clone(), source }),
+        }
+    };
     let local = listener.local_addr().map_err(|e| MockError::Other(e.to_string()))?;
     let cancel = CancellationToken::new();
     let traffic = TrafficLog::default();
