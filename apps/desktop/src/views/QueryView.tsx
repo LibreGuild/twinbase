@@ -29,7 +29,8 @@ function toCsv(r: QueryResult): string {
 }
 
 function toMarkdown(r: QueryResult): string {
-  const esc = (s: string) => s.replace(/\|/g, "\\|").replace(/\n/g, " ");
+  // Backslashes first, so a cell ending in "\" cannot un-escape the next pipe.
+  const esc = (s: string) => s.replace(/\\/g, "\\\\").replace(/\|/g, "\\|").replace(/\n/g, " ");
   return [
     `| ${r.columns.map((c) => esc(c.name)).join(" | ")} |`,
     `| ${r.columns.map(() => "---").join(" | ")} |`,

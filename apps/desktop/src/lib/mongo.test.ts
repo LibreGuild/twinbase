@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { columnsOf, shellText, shortText, typeOf, type Json } from "./mongo";
+import { columnsOf, regexLiteralBody, shellText, shortText, typeOf, type Json } from "./mongo";
 
 describe("mongo values", () => {
   const doc: Json = {
@@ -43,5 +43,13 @@ describe("dynamo values", () => {
     expect(() => typed("N", "abc")).toThrow();
     expect(typed("BOOL", "true")).toEqual({ BOOL: true });
     expect(unmarshal({ M: { a: { NS: ["1", "2.5"] }, b: { N: "12345678901234567890" } } })).toEqual({ a: [1, 2.5], b: "12345678901234567890" });
+  });
+});
+
+describe("regexLiteralBody", () => {
+  it("escapes bare slashes and keeps existing escapes", () => {
+    expect(regexLiteralBody("a/b")).toBe("a\\/b");
+    expect(regexLiteralBody("a\\/b")).toBe("a\\/b");
+    expect(regexLiteralBody("\\d+\\.\\d+")).toBe("\\d+\\.\\d+");
   });
 });
