@@ -136,8 +136,9 @@ Postgres.app, `PATH`, `/usr/lib/postgresql/*`, `/usr/pgsql-*`, the Windows insta
 version wins. TwinBase does not ship PostgreSQL.
 
 - The server listens only on a private unix socket (`listen_addresses` empty, socket directory with
-  mode 0700), so nothing but TwinBase can reach it. On Windows it listens on 127.0.0.1 at a random
-  port.
+  mode 0700), so nothing but TwinBase can reach it. On Windows (no unix sockets) it listens on
+  127.0.0.1 at a random port without a password, so other programs on the same computer could reach
+  it while the mock runs.
 - The mock port is a protocol-aware proxy in front of it: it applies the mock's authentication (any
   credentials, or one user and password — clients send a cleartext password as with TwinLite mocks),
   creates missing roles and databases on first use, records every statement with its row count,

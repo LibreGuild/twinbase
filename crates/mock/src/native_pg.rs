@@ -191,11 +191,10 @@ impl NativeServer {
     pub async fn admin(&self, database: &str) -> Result<tokio_postgres::Client, String> {
         let mut cfg = tokio_postgres::Config::new();
         cfg.user("postgres").dbname(database).port(self.port);
-        if cfg!(unix) {
-            cfg.host_path(&self.socket_dir);
-        } else {
-            cfg.host("127.0.0.1");
-        }
+        #[cfg(unix)]
+        cfg.host_path(&self.socket_dir);
+        #[cfg(not(unix))]
+        cfg.host("127.0.0.1");
         let (client, conn) = cfg.connect(tokio_postgres::NoTls).await.map_err(|e| e.to_string())?;
         tokio::spawn(async move {
             let _ = conn.await;
