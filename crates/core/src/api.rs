@@ -416,8 +416,7 @@ async fn dispatch(app: &Arc<App>, method: &str, params: &Value, actor: &Actor) -
         }
         "mock.delete" => {
             let q: IdParam = p(params)?;
-            app.stop_mock(&q.id).await?;
-            app.workspace().delete_mock(&q.id)?;
+            app.delete_mock(&q.id).await?;
             app.reload()?;
             Ok(json!({ "deleted": q.id }))
         }

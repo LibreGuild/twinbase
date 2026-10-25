@@ -422,15 +422,6 @@ impl Workspace {
         write_toml(&self.mock_dir(&m.id).join("mock.toml"), m)
     }
 
-    pub fn delete_mock(&self, id: &str) -> Result<()> {
-        check_id(id)?;
-        let d = self.mock_dir(id);
-        if d.exists() {
-            std::fs::remove_dir_all(&d).map_err(|e| CoreError::io(&d, e))?;
-        }
-        Ok(())
-    }
-
     /// The seed a mock starts from: SQL or Redis commands in `seed.sql`; MongoDB Extended JSON,
     /// DynamoDB tables or Firestore documents in `seed.json`.
     pub fn seed_path(&self, id: &str, kind: MockKind) -> PathBuf {

@@ -252,6 +252,23 @@ fn code_words(s: &str, lex: Lexing) -> Vec<String> {
     out
 }
 
+/// Remove a folder whose files a stopped mock server is still closing: connections close their
+/// database files a moment after the server stops, and Windows refuses to delete open files.
+async fn remove_dir_when_closed(dir: &std::path::Path) -> Result<()> {
+    let mut attempt = 0;
+    while dir.exists() {
+        match std::fs::remove_dir_all(dir) {
+            Ok(()) => break,
+            Err(_) if attempt < 50 => {
+                attempt += 1;
+                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            }
+            Err(e) => return Err(CoreError::io(dir, e)),
+        }
+    }
+    Ok(())
+}
+
 /// Built-in PostgreSQL functions that touch server files or run SQL given as a string (which a
 /// statement check cannot see into).
 const SERVER_FUNCTIONS: &[&str] = &[
@@ -831,14 +848,18 @@ impl App {
         Ok(())
     }
 
+    /// Stop a mock and delete its folder (definition, seed and data).
+    pub async fn delete_mock(&self, id: &str) -> Result<()> {
+        crate::model::check_id(id)?;
+        self.stop_mock(id).await?;
+        remove_dir_when_closed(&self.workspace().mock_dir(id)).await
+    }
+
     /// Delete a mock's data and start it again from its seed script.
     pub async fn reset_mock(&self, id: &str) -> Result<()> {
         let was_running = self.is_mock_running(id).await;
         self.stop_mock(id).await?;
-        let dir = self.workspace().mock_data_dir(id);
-        if dir.exists() {
-            std::fs::remove_dir_all(&dir).map_err(|e| CoreError::io(&dir, e))?;
-        }
+        remove_dir_when_closed(&self.workspace().mock_data_dir(id)).await?;
         let _ = was_running;
         self.start_mock(id).await?;
         self.emit(Event::SchemaChanged { connection: mock_connection_id(id) });
