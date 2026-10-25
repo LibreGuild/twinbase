@@ -1,0 +1,52 @@
+[workspace]
+resolver = "3"
+members = ["crates/*", "apps/desktop/src-tauri"]
+# `cargo build`/`cargo test` at the root skip the desktop shell (built with the Tauri CLI).
+default-members = ["crates/*"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+repository = "https://github.com/LibreGuild/twinbase"
+authors = ["LibreGuild contributors"]
+rust-version = "1.90"
+
+[workspace.dependencies]
+twinbase-engine = { path = "crates/engine" }
+twinbase-mock = { path = "crates/mock" }
+twinbase-client = { path = "crates/client" }
+twinbase-core = { path = "crates/core" }
+twinbase-firestore-proto = { path = "crates/firestore-proto" }
+
+anyhow = "1"
+async-trait = "0.1"
+base64 = "0.22"
+bytes = "1"
+chrono = { version = "0.4", default-features = false, features = ["std", "clock", "serde"] }
+futures = "0.3"
+parking_lot = "0.12"
+rand = "0.9"
+rusqlite = { version = "0.41", default-features = false, features = ["bundled", "column_decltype", "column_metadata", "functions", "window", "series", "hooks", "backup", "limits", "session"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sqlparser = { version = "0.63", features = ["visitor"] }
+thiserror = "2"
+tokio = { version = "1", features = ["full"] }
+tracing = "0.1"
+uuid = { version = "1", features = ["v4", "serde"] }
+
+# Debug builds keep line tables (readable backtraces) but no full debug info, and dependencies
+# none: the test suite links many binaries, and full debug info made target/ grow past 100 GB.
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true
+opt-level = 3
+panic = "abort"

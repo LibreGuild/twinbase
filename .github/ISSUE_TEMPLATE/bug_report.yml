@@ -1,0 +1,82 @@
+name: Bug report
+description: Something doesn't work as it should.
+labels: ["bug", "needs triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting! Please search the [existing issues](https://github.com/LibreGuild/twinbase/issues) first.
+        **Security problems:** don't file them here; see [SECURITY.md](https://github.com/LibreGuild/twinbase/blob/main/SECURITY.md).
+        Remove passwords, tokens, connection strings and private hosts from anything you paste.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you see, and what did you expect instead?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: The smallest set of steps that shows the problem. A seed script or the SQL you ran helps a lot.
+      placeholder: |
+        1. Create a PostgreSQL mock …
+        2. Connect with …
+        3. Run …
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Database client (connecting, browsing, editing, queries)
+        - Mock server (PostgreSQL, MySQL, SQL Server, Redis, MongoDB, DynamoDB, Firestore)
+        - TwinLite engine (SQL behaviour of a mock)
+        - Change preview, schema diff or migrations
+        - Saved queries, scenarios or bundles
+        - AI agents (MCP)
+        - Command line (twinbase)
+        - Installing or starting the app
+        - Something else
+    validations:
+      required: true
+  - type: input
+    id: database
+    attributes:
+      label: Database and client
+      description: The database (and version) or mock kind, and the driver, ORM or tool that talks to it.
+      placeholder: "PostgreSQL mock, Prisma 6"
+  - type: input
+    id: version
+    attributes:
+      label: TwinBase version
+      description: Shown in Settings, or run `twinbase --version`.
+      placeholder: "0.1.0"
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - Windows 11
+        - Windows 10
+        - macOS (Apple silicon)
+        - macOS (Intel)
+        - Linux (deb)
+        - Linux (rpm)
+        - Linux (AppImage)
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or error messages
+      description: Error text, the mock's Traffic tab, or the output of `twinbase` run in a terminal.
+      render: text
+  - type: textarea
+    id: more
+    attributes:
+      label: Anything else?

@@ -1,0 +1,22 @@
+[package]
+name = "twinbase-cli"
+description = "TwinBase command line: headless mock servers, MCP bridge, bundles"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "twinbase"
+path = "src/main.rs"
+
+[dependencies]
+twinbase-core.workspace = true
+twinbase-mock.workspace = true
+twinbase-engine.workspace = true
+anyhow.workspace = true
+clap = { version = "4", features = ["derive"] }
+serde_json.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }

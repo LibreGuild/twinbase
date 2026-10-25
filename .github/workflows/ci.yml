@@ -1,0 +1,389 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  # Run by hand to try the installers without releasing them: the packages are kept as
+  # artifacts of the run (14 days) and no release is created.
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+# Read-only by default; only the release jobs get write access.
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+
+jobs:
+  rust-linux:
+    name: Rust (Linux) — fmt, clippy, tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Format
+        run: cargo fmt --all --check
+      - name: Clippy
+        run: cargo clippy --all-targets -- -D warnings
+      - name: Tests
+        run: cargo test --no-fail-fast
+
+  rust-windows:
+    name: Rust (Windows) — tests
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Tests
+        run: cargo test --no-fail-fast
+
+  ui:
+    name: UI — typecheck, unit tests, build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/desktop
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/desktop/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+
+  dependency-review:
+    name: Dependency review
+    # New dependencies in a pull request are checked for known vulnerabilities and licenses.
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/dependency-review-action@v5
+        with:
+          fail-on-severity: high
+
+  # ---- releases ------------------------------------------------------------------------------------
+  # Installers are built only for a `v*` tag (published as a GitHub release once every build has
+  # succeeded) or for a run started by hand (kept as run artifacts, nothing is released). Pushes
+  # and pull requests only run the checks above. See docs/releasing.md.
+
+  prepare:
+    name: Prepare the release
+    needs: [rust-linux, rust-windows, ui]
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      publish: ${{ steps.version.outputs.publish }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Version
+        id: version
+        run: |
+          set -euo pipefail
+          version=$(python3 -c 'import tomllib; print(tomllib.load(open("Cargo.toml", "rb"))["workspace"]["package"]["version"])')
+          for file in apps/desktop/package.json apps/desktop/src-tauri/tauri.conf.json; do
+            other=$(jq -r .version "$file")
+            if [ "$other" != "$version" ]; then
+              echo "::error file=$file::version $other differs from Cargo.toml ($version)"
+              exit 1
+            fi
+          done
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            if [ "${GITHUB_REF_NAME#v}" != "$version" ]; then
+              echo "::error::tag $GITHUB_REF_NAME does not match the version in the code ($version)"
+              exit 1
+            fi
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - name: Create the draft release
+        if: steps.version.outputs.publish == 'true'
+        run: |
+          gh release create "$GITHUB_REF_NAME" --draft --verify-tag \
+            --title "TwinBase ${{ steps.version.outputs.version }}" --notes "Building…"
+
+  build-windows:
+    name: Build Windows (installer, portable, CLI)
+    needs: prepare
+    runs-on: windows-latest
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # Keep the write token out of .git/config while npm and cargo build scripts run.
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/desktop/package-lock.json
+      - name: Install UI deps
+        working-directory: apps/desktop
+        run: npm ci
+      - name: Build the app with the CLI inside
+        working-directory: apps/desktop
+        shell: bash
+        run: |
+          rm -rf ../../target/release/bundle
+          npm run package -- --bundles nsis
+      - name: Collect
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
+          $nsis = Get-ChildItem target/release/bundle/nsis/*.exe | Select-Object -First 1
+          Copy-Item $nsis.FullName dist/TwinBase-Windows-Setup-x64.exe
+          # Portable: the app and the CLI in one folder (needs WebView2, already on Windows 10/11).
+          New-Item -ItemType Directory -Force portable | Out-Null
+          Copy-Item "target/release/twinbase-desktop.exe" "portable/TwinBase.exe"
+          Copy-Item "target/release/twinbase.exe", "LICENSE" portable/
+          Compress-Archive -Path portable/* -DestinationPath dist/TwinBase-Windows-Portable-x64.zip
+          # The command line on its own, for CI machines and servers (headless mocks).
+          New-Item -ItemType Directory -Force cli | Out-Null
+          Copy-Item "target/release/twinbase.exe", "LICENSE" cli/
+          Compress-Archive -Path cli/* -DestinationPath dist/twinbase-cli-windows-x64.zip
+          Get-ChildItem dist | Format-Table Name, Length
+      - uses: actions/attest-build-provenance@v4
+        if: needs.prepare.outputs.publish == 'true'
+        with:
+          subject-path: dist/*
+      - name: Upload to the draft release
+        if: needs.prepare.outputs.publish == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: gh release upload "$GITHUB_REF_NAME" dist/* --clobber
+      - name: Keep as run artifacts
+        if: needs.prepare.outputs.publish != 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: twinbase-windows
+          path: dist/*
+          retention-days: 14
+
+  build-macos:
+    name: Build macOS (universal DMG, CLI)
+    needs: prepare
+    runs-on: macos-latest
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/desktop/package-lock.json
+      - name: Install UI deps
+        working-directory: apps/desktop
+        run: npm ci
+      - name: Build the app with the CLI inside (Apple silicon + Intel)
+        working-directory: apps/desktop
+        run: |
+          rm -rf ../../target/universal-apple-darwin/release/bundle
+          npm run package -- --target universal-apple-darwin --bundles app,dmg
+      - name: Collect
+        run: |
+          mkdir -p dist cli
+          cp target/universal-apple-darwin/release/bundle/dmg/*.dmg dist/TwinBase-macOS-universal.dmg
+          # The command line on its own (Apple silicon and Intel), for CI machines and servers.
+          cp apps/desktop/src-tauri/binaries/twinbase-universal-apple-darwin cli/twinbase
+          cp LICENSE cli/
+          tar -czf dist/twinbase-cli-macos-universal.tar.gz -C cli twinbase LICENSE
+          ls -l dist
+      - uses: actions/attest-build-provenance@v4
+        if: needs.prepare.outputs.publish == 'true'
+        with:
+          subject-path: dist/*
+      - name: Upload to the draft release
+        if: needs.prepare.outputs.publish == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: gh release upload "$GITHUB_REF_NAME" dist/* --clobber
+      - name: Keep as run artifacts
+        if: needs.prepare.outputs.publish != 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: twinbase-macos
+          path: dist/*
+          retention-days: 14
+
+  build-linux:
+    name: Build Linux (deb, rpm, AppImage, CLI)
+    needs: prepare
+    # The oldest supported Ubuntu: packages built here run on newer systems (glibc).
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: System libraries (WebKitGTK and friends)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev patchelf file
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/desktop/package-lock.json
+      - name: Install UI deps
+        working-directory: apps/desktop
+        run: npm ci
+      - name: Build the app with the CLI inside
+        working-directory: apps/desktop
+        run: |
+          rm -rf ../../target/release/bundle
+          npm run package -- --bundles deb,rpm,appimage
+      - name: Collect
+        run: |
+          mkdir -p dist cli
+          cp target/release/bundle/deb/*.deb dist/TwinBase-Linux-amd64.deb
+          cp target/release/bundle/rpm/*.rpm dist/TwinBase-Linux-x86_64.rpm
+          cp target/release/bundle/appimage/*.AppImage dist/TwinBase-Linux-x86_64.AppImage
+          # The command line on its own, for CI machines and servers (built on the oldest supported glibc).
+          cp target/release/twinbase LICENSE cli/
+          tar -czf dist/twinbase-cli-linux-x86_64.tar.gz -C cli twinbase LICENSE
+          ls -l dist
+      - uses: actions/attest-build-provenance@v4
+        if: needs.prepare.outputs.publish == 'true'
+        with:
+          subject-path: dist/*
+      - name: Upload to the draft release
+        if: needs.prepare.outputs.publish == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: gh release upload "$GITHUB_REF_NAME" dist/* --clobber
+      - name: Keep as run artifacts
+        if: needs.prepare.outputs.publish != 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: twinbase-linux
+          path: dist/*
+          retention-days: 14
+
+  publish:
+    name: Publish the release
+    needs: [prepare, build-windows, build-macos, build-linux]
+    if: needs.prepare.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      VERSION: ${{ needs.prepare.outputs.version }}
+    steps:
+      - name: Checksums
+        run: |
+          set -euo pipefail
+          mkdir -p files && cd files
+          gh release download "$GITHUB_REF_NAME"
+          sha256sum -- * > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+          gh release upload "$GITHUB_REF_NAME" SHA256SUMS.txt --clobber
+      - name: Release notes
+        run: |
+          set -euo pipefail
+          cat > notes.md <<'NOTES'
+          ## Downloads
+
+          | System | File |
+          | --- | --- |
+          | Windows 10/11 (x64) | `TwinBase-Windows-Setup-x64.exe` (installer) or `TwinBase-Windows-Portable-x64.zip` |
+          | macOS 11+ (Apple silicon and Intel) | `TwinBase-macOS-universal.dmg` |
+          | Linux (x86_64) | `TwinBase-Linux-amd64.deb`, `TwinBase-Linux-x86_64.rpm` or `TwinBase-Linux-x86_64.AppImage` |
+          | Command line only (headless mocks, MCP) | `twinbase-cli-*` |
+
+          `SHA256SUMS.txt` lists the checksums; every file also has a build provenance attestation (`gh attestation verify <file> --repo LibreGuild/twinbase`).
+
+          The builds are not code-signed yet. **Windows:** if SmartScreen appears, choose **More info → Run anyway**. **macOS:** the first open is blocked; open System Settings → Privacy & Security → **Open Anyway**, or run `xattr -dr com.apple.quarantine /Applications/TwinBase.app`.
+          NOTES
+          # What changed: merged pull requests since the previous release (.github/release.yml).
+          prev=$(gh api "repos/$GH_REPO/releases?per_page=100" | jq -r --arg current "$GITHUB_REF_NAME" \
+            '[.[] | select((.draft | not) and (.prerelease | not) and (.tag_name | startswith("v")) and .tag_name != $current) | .tag_name] | first // empty')
+          printf '\n' >> notes.md
+          if [ -n "$prev" ]; then
+            gh api "repos/$GH_REPO/releases/generate-notes" -f tag_name="$GITHUB_REF_NAME" -f previous_tag_name="$prev" --jq .body >> notes.md
+          else
+            gh api "repos/$GH_REPO/releases/generate-notes" -f tag_name="$GITHUB_REF_NAME" --jq .body >> notes.md
+          fi
+      - name: Publish
+        run: |
+          set -euo pipefail
+          # Retried: a transient API error must not leave the draft unpublished.
+          for attempt in 1 2 3 4 5; do
+            if gh release edit "$GITHUB_REF_NAME" --draft=false --latest --title "TwinBase $VERSION" --notes-file notes.md; then
+              exit 0
+            fi
+            sleep $((attempt * 5))
+          done
+          exit 1
+
+  discard-draft:
+    name: Discard the draft
+    # A build failed or the run was cancelled: remove the draft (drafts are never public).
+    needs: [prepare, build-windows, build-macos, build-linux, publish]
+    if: always() && needs.prepare.outputs.publish == 'true' && needs.publish.result != 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Delete the draft
+        run: gh release delete "$GITHUB_REF_NAME" --yes || true

@@ -1,0 +1,3 @@
+[env]
+# Allow many schemas/databases per mock session (each one is an attached SQLite file).
+LIBSQLITE3_FLAGS = "-DSQLITE_MAX_ATTACHED=125 -DSQLITE_ENABLE_MATH_FUNCTIONS"

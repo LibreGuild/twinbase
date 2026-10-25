@@ -1,0 +1,13 @@
+/target
+node_modules/
+dist/
+.DS_Store
+*.log
+/apps/desktop/src-tauri/gen/
+apps/desktop/src-tauri/binaries
+# Local tool state and secrets never belong in the repository.
+.claude/
+.env
+.env.*
+*.pem
+*.key
