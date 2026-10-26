@@ -10,7 +10,7 @@ repository.workspace = true
 russh = { version = "0.64", default-features = false, features = ["ring", "rsa", "flate2"] }
 twinbase-engine.workspace = true
 async-trait.workspace = true
-base64 = "0.22"
+base64 = "0.23"
 chrono.workspace = true
 futures.workspace = true
 parking_lot.workspace = true
@@ -33,8 +33,8 @@ twinbase-firestore-proto.workspace = true
 tonic = { version = "0.14", default-features = false, features = ["transport", "channel", "codegen", "tls-ring", "tls-webpki-roots"] }
 ring = "0.17"
 bytes.workspace = true
-hmac = "0.12"
-sha2 = "0.10"
+hmac = "0.13"
+sha2 = "0.11"
 hyper = { version = "1", features = ["client", "http1"] }
 hyper-util = { version = "0.1", features = ["tokio"] }
 http-body-util = "0.1"
