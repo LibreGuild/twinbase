@@ -3,8 +3,10 @@
 
 pub mod api;
 pub mod app;
+pub mod bootcamp;
 pub mod bundle;
 pub mod ddl;
+pub mod docs;
 pub mod error;
 pub mod events;
 pub mod explain;

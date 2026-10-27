@@ -568,6 +568,32 @@ ships with tests, core API, MCP tools, UI and docs.
   functions are callable), and mocks listening on 0.0.0.0 accept any credentials unless a password
   is set (the dialog says so).
 
+- 2026-10-27 — **Feedback round + Bootcamp** (user request; not pushed):
+  - UI: the top bar is the window's title bar (macOS buttons centred natively via
+    `src-tauri/src/traffic_lights.rs`, as in Zorvik; own window controls on Windows/Linux with
+    `decorations: false`); tabs inside the work panel. A first attempt merged tabs into the title
+    row; the user preferred Zorvik's two rows.
+    scrollable tab strip (wheel → horizontal, hover scrollbar, edge fade), white text on accent
+    buttons (`--accent-strong`), Home tab icon.
+  - Docs at every level (`core/src/docs.rs`, `docs.*` API, `components/Docs.tsx`): workspace
+    README.md, connection/mock docs fields, object docs with per-column notes in `*/docs/*.toml`;
+    Markdown via marked + DOMPurify with Mermaid (lazy, strict, themed).
+  - pgvector in TwinLite (`engine/src/vector.rs`): vector/halfvec/sparsevec, operators (unparseable
+    `<#> <+> <~> <%>` swapped to geometric tokens before parsing), functions, aggregates, binary wire
+    format, catalog entries; MySQL 9 / SQL Server 2025 vector functions; client shows full extension
+    types.
+  - Redis client: per-database connections (`RedisClient::at`), keyspace/databases API, streams and
+    RedisJSON values, server info, console guards, sidebar DB tree, Redis console tab.
+  - Bootcamp (`apps/desktop/src/bootcamp/`, `core/src/bootcamp.rs`): own workspace with three lab
+    mocks, 10 chapters / 34 lessons / 11 labs, 11 widgets, 6 quiz types, XP/levels/streaks/16 badges
+    (gpt-image-1.5 art; gpt-image-2 lacks transparency). Labs verified against a live core.
+  - MCP: 21 new tools; agent install (one-liners, Cursor deep link, config-file Install with backup,
+    `twinbase agent install`); agents can't escalate access or re-point saved connections.
+  - Review: sparse-vector expansion DoS, zip 2→9 (advisories), cargo audit in CI with documented
+    exceptions, bundle export missed `seed.json`, Redis seed capture read one SCAN page, sample data
+    duplicated composite keys, Chrome's Promise-returning `scrollTo` broke an effect.
+  - README screenshots, GitHub Pages site (`site/`, `pages.yml`).
+
 ## 7. Later phases
 
 **Phase 2 — more databases and depth**

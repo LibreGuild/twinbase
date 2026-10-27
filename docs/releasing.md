@@ -60,3 +60,10 @@ npm run package -- --target universal-apple-darwin --bundles app,dmg   # macOS u
 `npm run package` builds the `twinbase` CLI for the target first and places it where Tauri
 expects its external binary (`src-tauri/tauri.bundle.conf.json`); plain `cargo build` and
 `tauri dev` don't need it.
+
+## Website
+
+`site/` is a static page published to GitHub Pages (https://libreguild.github.io/twinbase/) by
+`.github/workflows/pages.yml` whenever it changes on `main`. Enable it once in the repository
+settings: **Pages → Source: GitHub Actions**. Screenshots live in `site/assets/shots/` and
+`.github/assets/` (README).

@@ -1,21 +1,31 @@
+// @vitest-environment jsdom
 import { describe, expect, it } from "vitest";
 import { renderMarkdown } from "./markdown";
 import { isReadOnlySql, riskyStatement } from "./format";
 
 describe("markdown", () => {
-  it("escapes HTML", () => {
-    expect(renderMarkdown("<script>alert(1)</script>")).toBe("<p>&lt;script&gt;alert(1)&lt;/script&gt;</p>");
+  it("escapes raw HTML", () => {
+    const html = renderMarkdown("<script>alert(1)</script> and <b>bold</b>");
+    expect(html).not.toContain("<script");
+    expect(html).not.toContain("<b>");
+    expect(html).toContain("&lt;b&gt;");
   });
-  it("renders headings, lists, code and links", () => {
-    const html = renderMarkdown("## Why\n- one `x`\n- **two**\n\n```\nselect 1;\n```\n[docs](https://example.com)");
+  it("renders headings, lists, code, tables and links", () => {
+    const html = renderMarkdown("## Why\n- one `x`\n- **two**\n\n```sql\nselect 1 < 2;\n```\n\n| a | b |\n| - | - |\n| 1 | 2 |\n\n[docs](https://example.com)");
     expect(html).toContain("<h2>Why</h2>");
-    expect(html).toContain("<li>one <code>x</code></li>");
+    expect(html).toContain("<code>x</code>");
     expect(html).toContain("<strong>two</strong>");
-    expect(html).toContain("<pre><code>select 1;</code></pre>");
+    expect(html).toContain("select 1 &lt; 2;");
+    expect(html).toContain("<table>");
     expect(html).toContain('href="https://example.com"');
   });
-  it("does not turn javascript: links into anchors", () => {
-    expect(renderMarkdown("[x](javascript:alert(1))")).not.toContain("<a");
+  it("drops javascript: links", () => {
+    expect(renderMarkdown("[x](javascript:alert(1))")).not.toContain("javascript:");
+  });
+  it("turns mermaid blocks into diagram placeholders", () => {
+    const html = renderMarkdown("```mermaid\ngraph TD; A-->B\n```");
+    expect(html).toContain('class="mermaid-block"');
+    expect(html).toContain("data-src=");
   });
 });
 

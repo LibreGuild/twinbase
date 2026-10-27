@@ -12,13 +12,16 @@ export type Tab =
   | { id: string; kind: "table"; connection: string; schema: string; table: string; filters?: Filter[] }
   | { id: string; kind: "query"; connection?: string; sql: string; title: string; saved?: { collection: string; id: string }; autorun?: boolean }
   | { id: string; kind: "diagram"; connection: string; schema: string }
-  | { id: string; kind: "redis"; connection: string }
+  | { id: string; kind: "redis"; connection: string; db?: number }
   | { id: string; kind: "mongo"; connection: string; database: string; collection: string }
   | { id: string; kind: "dynamo"; connection: string; table: string }
   | { id: string; kind: "firestore"; connection: string; collection: string }
   | { id: string; kind: "search"; connection: string; index: string }
   | { id: string; kind: "mock"; mockId: string; section?: string }
   | { id: string; kind: "collection"; collectionId: string }
+  | { id: string; kind: "docs"; target?: string; object?: string }
+  | { id: string; kind: "bootcamp" }
+  | { id: string; kind: "lesson"; lessonId: string }
   | { id: string; kind: "schema"; from?: SchemaSource; to?: SchemaSource };
 
 export type TabInput = Tab extends infer T ? (T extends Tab ? Omit<T, "id"> & { id?: string } : never) : never;
@@ -61,6 +64,8 @@ interface State {
   /** Port the MCP endpoint is actually listening on (null when it could not start). */
   mcpListening?: number | null;
   workspace?: WorkspaceInfo;
+  /** The Bootcamp workspace (its own folder in the app directory) and whether it is open. */
+  bootcamp?: { path: string; active: boolean };
   tabs: Tab[];
   activeTab: string;
   activity: Activity[];
@@ -132,7 +137,7 @@ function tabKey(t: TabInput): string | undefined {
     case "diagram":
       return `diagram:${t.connection}:${t.schema}`;
     case "redis":
-      return `redis:${t.connection}`;
+      return `redis:${t.connection}:${t.db ?? ""}`;
     case "mongo":
       return `mongo:${t.connection}:${t.database}:${t.collection}`;
     case "dynamo":
@@ -145,6 +150,12 @@ function tabKey(t: TabInput): string | undefined {
       return `mock:${t.mockId}`;
     case "collection":
       return `collection:${t.collectionId}`;
+    case "docs":
+      return `docs:${t.target ?? ""}:${t.object ?? ""}`;
+    case "bootcamp":
+      return "bootcamp";
+    case "lesson":
+      return `lesson:${t.lessonId}`;
     case "query":
       return t.saved ? `query:${t.saved.collection}:${t.saved.id}` : undefined;
   }
@@ -207,11 +218,12 @@ export const useStore = create<State>((set, get) => ({
 
   async init() {
     try {
-      const [settings, workspace, activity, info] = await Promise.all([
+      const [settings, workspace, activity, info, bootcamp] = await Promise.all([
         call<Settings>("settings.get"),
         call<WorkspaceInfo>("workspace.get"),
         call<Activity[]>("activity.list", { limit: 300 }),
         call<AppInfo>("app.info"),
+        call<{ path: string; active: boolean }>("bootcamp.info").catch(() => undefined),
       ]);
       applyTheme(settings.theme);
       applyFonts(settings);
@@ -225,6 +237,7 @@ export const useStore = create<State>((set, get) => ({
         settings,
         workspace,
         info,
+        bootcamp,
         activity: activity.slice().reverse(),
         mcpListening: info.mcp.listening,
         showStart: get().showStart || (info.first_run && !started),
@@ -432,6 +445,23 @@ export async function switchWorkspace(path: string, name?: string) {
   }
   useStore.setState({ tabs: [{ id: "home", kind: "home" }], activeTab: "home", tables: {}, schemas: {}, dirtyTabs: {}, showStart: false, dialog: null });
   await useStore.getState().init();
+}
+
+/** Open the Bootcamp: switch to its workspace (lab servers live there) and show the course. */
+export async function openBootcamp(lessonId?: string) {
+  if (!useStore.getState().bootcamp?.active) {
+    await call("bootcamp.open");
+    try {
+      localStorage.setItem("twinbase.started", "1");
+    } catch {
+      /* storage unavailable */
+    }
+    useStore.setState({ tabs: [{ id: "home", kind: "home" }], activeTab: "home", tables: {}, schemas: {}, dirtyTabs: {}, showStart: false, dialog: null });
+    await useStore.getState().init();
+  }
+  const s = useStore.getState();
+  s.openTab({ kind: "bootcamp" });
+  if (lessonId) s.openTab({ kind: "lesson", lessonId });
 }
 
 /** Remember that the user has chosen a workspace, so the start page does not come back. */

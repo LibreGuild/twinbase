@@ -4,22 +4,26 @@
 
 On first launch TwinBase asks how to start: open the **default workspace**, **create a new
 workspace** (name + location — a `.twinbase` folder inside your code repository is a good choice, so
-the team can commit it to GitHub), or **open an existing workspace** folder. The workspace name in the
-top bar opens a menu to switch between recent workspaces, create or open one, import a bundle, or
+the team can commit it to GitHub), or **open an existing workspace** folder. The workspace name in the top bar
+opens a menu to switch between recent workspaces, create or open one, import a bundle, or
 bring the start page back.
 
 ## Layout
 
-- **Top bar:** logo and workspace switcher, a search field (⌘/Ctrl+K) that jumps to tables, mocks,
-  connections, saved queries and actions, a **mock servers** pill (start/stop any mock from its
-  menu), the **AI agents** status (connected agents, or a warning when MCP is unavailable), the
-  Activity toggle, the light/dark switch and **Settings**. On macOS the bar replaces the window title
-  bar; drag it to move the window.
+- **Top bar:** it replaces the system title bar. On macOS the window buttons sit at its left end,
+  centred in the bar; on Windows and Linux TwinBase draws its own minimise, maximise and close
+  buttons at the right end. Next come the logo and the workspace switcher; on the right, search
+  (⌘/Ctrl+K: tables, mocks, connections, saved queries and actions), the **mock servers** pill
+  (start/stop any mock from its menu), the **AI agents** status, the Activity toggle, the light/dark
+  switch and **Settings**. Empty space in the bar drags the window; double-click maximises it.
 - **Icon rail** (left): Home, **Databases** (mock servers and connections, expandable to schemas
-  and tables), **Saved queries** (collections), and **Schema snapshots and diff**.
-- **Tabs** (centre, in a rounded panel): Home, tables, SQL editors, diagrams, Redis browsers, mock
-  servers, collections and schema comparisons. A dot marks unsaved changes; closing such a tab asks
-  first.
+  and tables), **Saved queries** (collections), **Schema snapshots and diff**, and at the bottom the
+  **Bootcamp**.
+- **Tabs** (the first row of the rounded work panel): Home, tables, SQL editors, diagrams, Redis
+  browsers and consoles, mock servers, collections, docs, lessons and schema comparisons. The strip
+  scrolls sideways with a trackpad, the mouse wheel or its scrollbar; **+** at the right end opens a
+  new query. A dot marks
+  unsaved changes; closing such a tab asks first.
 - **Activity** (bottom of the panel, ⌘/Ctrl+J): every change made by you, AI agents and the CLI,
   with the SQL and errors. Filter by *AI agents* or *Errors*; click a statement to open it in an
   editor. The top-bar icon shows a badge for unseen agent actions.
@@ -60,13 +64,44 @@ and opens the diagram.
 
 ## Redis
 
-Key list with pattern and type filters, typed editors for strings, hashes, lists, sets and sorted
-sets, TTL controls, and a console with history (↑/↓).
+Expand a Redis connection or mock in the sidebar to see its numbered databases (with key counts) and
+a **Console**. The key browser has a database picker, a **Tree** view that groups keys by `:`
+namespaces (or a flat **List**), pattern and type filters, typed editors for strings, hashes, lists,
+sets, sorted sets and RedisJSON documents, a stream viewer, TTL controls, a **Server** panel with
+every `INFO` section, and an inline console with history (↑/↓). The Console tab runs a script of
+commands line by line (⌘/Ctrl+Enter runs the current line, ⇧ runs all) with timings. Commands that
+would break the shared connection (`SELECT`, `MULTI`, `SUBSCRIBE`, `MONITOR`) are refused with an
+explanation.
 
 ## Mock servers
 
-Connect (snippets for many languages and frameworks), Traffic (live statements per client) and Seed
-(edit, capture current data, reset).
+Connect (snippets for many languages and frameworks), Traffic (live statements per client), Faults,
+Seed (edit, capture current data, reset) and Docs.
+
+## Documentation
+
+Everything can carry Markdown docs, rendered with GitHub-flavoured Markdown (tables, task lists) and
+**Mermaid** diagrams in ```` ```mermaid ```` blocks. Every editor has Write, Preview and Split modes.
+
+- **Workspace:** Home → *About this workspace* (saved as `README.md` in the workspace folder, so it
+  also shows on GitHub).
+- **Connections and mock servers:** right-click → **Docs**, or a mock's **Docs** tab.
+- **Tables, collections, indexes:** a table's **Docs** tab documents the table and each column;
+  other objects have **Docs** in their right-click menu.
+- **Saved queries and collections:** in the save dialog and the collection page.
+
+Docs are plain files in the workspace (see [workspace-format.md](workspace-format.md)), travel with
+bundles, and are readable and writable by AI agents (`get_docs` / `set_docs`).
+
+## Bootcamp
+
+The graduation cap at the bottom of the rail opens the **Bootcamp**: ten chapters of short lessons
+on databases and system design — foundations, SQL, data modeling, indexes, transactions, storage
+internals, Redis caching, documents and key-value stores, scaling, and vectors/embeddings — with
+interactive illustrations, quizzes (multiple choice, select-all, true/false, fill in the blank,
+match the pairs, put in order) and hands-on labs on real mock servers. Lessons earn XP, levels,
+streaks and badges. The Bootcamp runs in a workspace of its own, so its lab servers never touch your
+projects; **Back to my workspace** returns. See [bootcamp.md](bootcamp.md).
 
 ## Keyboard shortcuts
 
@@ -80,6 +115,7 @@ Connect (snippets for many languages and frameworks), Traffic (live statements p
 | ⌘/Ctrl+, | Settings |
 | ⌘/Ctrl+Enter / Shift+Enter | Run all or selection / run current statement |
 | ⌘/Ctrl+S | Save query |
+| ⌘/Ctrl+Enter (Redis console, labs) | Run the current line / Run |
 
 ## Themes and fonts
 

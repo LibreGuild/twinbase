@@ -16,7 +16,27 @@ A workspace is a folder of plain files designed to be committed to Git and share
   queries/<collection>/_collection.toml   collection name and Markdown docs
   queries/<collection>/<id>.toml          saved query: SQL, docs, tags, connection, expectation
   snapshots/<id>.json                     schema snapshot (tables, columns, keys, indexes)
+  README.md                               workspace docs (Markdown, shown on Home)
+  connections/<id>/docs/<object>.toml     docs of a table/collection/index of a connection
+  mocks/<id>/docs/<object>.toml           docs of a table/collection/index of a mock
+  exports/                                bundles written by AI agents (export_bundle)
 ```
+
+Connections and mocks keep their own docs in a `docs = """…"""` field of their TOML file. Object
+docs hold the object's Markdown and a `[columns]` table of per-column notes:
+
+```toml
+docs = """
+One row per customer account. Never deleted; GDPR erasure anonymises `email`.
+"""
+
+[columns]
+email = "Unique, lower-case."
+country = "ISO 3166 country name."
+```
+
+Object names become file names with anything other than letters, digits, `.`, `_` and `-`
+percent-encoded (`public.users.toml`, `users%2Falice%2Fposts.toml`).
 
 A good place is `.twinbase/` inside your project repository: the team then shares mock definitions,
 seeds and documented queries with the code. Passwords, the MCP token and settings stay in the app

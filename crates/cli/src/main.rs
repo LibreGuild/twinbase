@@ -80,6 +80,13 @@ enum Command {
     },
     /// Print MCP setup instructions for coding agents.
     McpSetup,
+    /// Set up a coding agent to use TwinBase: `twinbase agent install cursor` (or `list`).
+    Agent {
+        /// `list`, or `install`.
+        action: String,
+        /// Agent id from `twinbase agent list` (claude-code, codex, gemini, antigravity, cursor, vscode, …).
+        name: Option<String>,
+    },
     /// Export mocks and query collections to a `.twinbase` bundle.
     Export {
         #[arg(long, short)]
@@ -248,6 +255,51 @@ async fn main() -> Result<()> {
             let info = twinbase_core::mcp::install_instructions(&settings);
             for a in info["agents"].as_array().unwrap() {
                 println!("## {}\n{}\n\n{}\n", a["name"].as_str().unwrap(), a["steps"].as_str().unwrap(), a["config"].as_str().unwrap());
+            }
+        }
+        Command::Agent { action, name } => {
+            let settings = twinbase_core::settings::LocalStore::new(app_dir()).load_settings();
+            let info = twinbase_core::mcp::install_instructions(&settings);
+            let agents = info["agents"].as_array().cloned().unwrap_or_default();
+            match (action.as_str(), name) {
+                ("list", _) => {
+                    for a in &agents {
+                        let how = if a.get("install").is_some() {
+                            "install"
+                        } else if a["command"].is_string() {
+                            "command"
+                        } else {
+                            "manual"
+                        };
+                        let mark = if a["install"]["installed"] == true {
+                            " (installed)"
+                        } else if a["detected"] == true {
+                            " (detected)"
+                        } else {
+                            ""
+                        };
+                        println!("{:<16} {:<26} {how}{mark}", a["id"].as_str().unwrap_or(""), a["name"].as_str().unwrap_or(""));
+                    }
+                }
+                ("install", Some(id)) => {
+                    let a = agents
+                        .iter()
+                        .find(|a| a["id"] == id.as_str())
+                        .with_context(|| format!("unknown agent '{id}' (see `twinbase agent list`)"))?;
+                    if a.get("install").is_some() {
+                        let r = twinbase_core::mcp::install(&settings, &id).map_err(|e| anyhow::anyhow!(e.message))?;
+                        println!(
+                            "Added TwinBase to {}. Restart {} to load it.",
+                            r["path"].as_str().unwrap_or(""),
+                            a["name"].as_str().unwrap_or("")
+                        );
+                    } else if let Some(cmd) = a["command"].as_str() {
+                        println!("Run this in a terminal:\n\n  {cmd}\n");
+                    } else {
+                        println!("{}\n\n{}", a["steps"].as_str().unwrap_or(""), a["config"].as_str().unwrap_or(""));
+                    }
+                }
+                _ => anyhow::bail!("usage: twinbase agent list | twinbase agent install <agent>"),
             }
         }
         Command::Export { out, mocks, collections, workspace, no_data } => {

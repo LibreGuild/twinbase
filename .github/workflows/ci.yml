@@ -85,6 +85,20 @@ jobs:
         with:
           fail-on-severity: high
 
+  audit:
+    name: Rust advisories (cargo audit)
+    # Known vulnerabilities in the locked dependency tree; accepted ones are listed with reasons in
+    # .cargo/audit.toml.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit
+      - run: cargo audit
+
   # ---- releases ------------------------------------------------------------------------------------
   # Installers are built only for a `v*` tag (published as a GitHub release once every build has
   # succeeded) or for a run started by hand (kept as run artifacts, nothing is released). Pushes

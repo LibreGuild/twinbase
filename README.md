@@ -7,8 +7,8 @@
 <p align="center">
   <b>A database client and real database mock servers in one desktop app.</b><br>
   Browse and edit 14 kinds of databases, preview every change on a local twin before it runs,<br>
-  and give your app a PostgreSQL, MySQL, SQL Server, Redis, MongoDB, DynamoDB or Firestore server in one click.<br>
-  Open source for Windows, macOS and Linux, and your coding agent can drive it.
+  and give your app a PostgreSQL (with pgvector), MySQL, SQL Server, Redis, MongoDB, DynamoDB or Firestore server in one click.<br>
+  Learn how databases work in the built-in Bootcamp. Open source for Windows, macOS and Linux, and your coding agent can drive it.
 </p>
 
 <p align="center">
@@ -20,8 +20,10 @@
 
 <p align="center">
   <a href="https://github.com/LibreGuild/twinbase/releases/latest"><b>Download</b></a> ·
+  <a href="https://libreguild.github.io/twinbase/">Website</a> ·
   <a href="#features">Features</a> ·
   <a href="#mock-servers">Mock servers</a> ·
+  <a href="#bootcamp">Bootcamp</a> ·
   <a href="#ai-agents">AI agents</a> ·
   <a href="#command-line">Command line</a> ·
   <a href="docs/">Docs</a> ·
@@ -29,7 +31,7 @@
 </p>
 
 <p align="center">
-  <img alt="TwinBase running a SQL query against a PostgreSQL mock server" src=".github/assets/screenshot.png" width="900">
+  <img alt="TwinBase running a SQL query against a PostgreSQL mock server" src=".github/assets/query.webp" width="900">
 </p>
 
 ## Why TwinBase
@@ -42,6 +44,10 @@
   same grid, editors and diagrams.
 - **Built for working with AI agents.** Claude Code, Codex, Gemini CLI, Cursor and any MCP client get
   tools for every feature, with per-connection access levels and a live activity log.
+- **Learn while you build.** The Bootcamp teaches databases and system design with short lessons,
+  quizzes and hands-on labs on real mock servers — with XP, levels and badges.
+- **Document everything.** Markdown docs with Mermaid diagrams on the workspace, every connection,
+  mock, table and column, kept as plain files next to your code.
 - **Local and private.** No account, no cloud, no telemetry. Passwords live in your OS keychain.
 
 ## Features
@@ -54,6 +60,8 @@
 | **Query** | SQL editor with completion and per-statement results; mongosh-style, DynamoDB, Firestore and Elasticsearch consoles; query history and saved queries |
 | **Understand** | Query plans visualized (`EXPLAIN`/`SHOWPLAN`/Spanner and BigQuery plans) with index hints; ER diagrams; DDL export and conversion between dialects |
 | **Change safely** | Change preview on a local twin; schema snapshots, diffs and generated migration scripts (up and down) |
+| **Document** | Markdown and Mermaid docs for the workspace (README.md), connections, mocks, tables, columns, collections and saved queries |
+| **Redis** | Numbered databases, namespace tree, typed editors (strings, hashes, lists, sets, sorted sets, JSON), streams, server info and a script console |
 | **Connect** | TLS modes, SSH tunnels (keys, passwords, host-key checks), Google service accounts and ADC, Microsoft Entra tokens |
 
 ### Mock servers
@@ -61,9 +69,21 @@
 | --- | --- |
 | **Protocols** | PostgreSQL, MySQL, SQL Server (TDS), Redis (RESP2/3), MongoDB (OP_MSG, SCRAM), DynamoDB (HTTP, SigV4), Firestore (gRPC, `FIRESTORE_EMULATOR_HOST`) |
 | **SQL engine** | TwinLite runs PostgreSQL, MySQL and T-SQL on SQLite with the real servers' types, catalogs (`pg_catalog`, `information_schema`, `sys.*`) and error codes; PostgreSQL mocks can also run on a real PostgreSQL installation |
+| **Vectors** | pgvector built in: `vector`, `halfvec`, `sparsevec`, all distance operators and functions, HNSW/IVFFlat DDL — embedding code runs unchanged |
 | **Workflow** | Seed scripts, capture current data as a seed, one-click reset, persistent or temporary data |
 | **Testing** | Live traffic of every statement, fault injection (latency, errors by code, dropped connections, refused connections) |
 | **Prototyping** | Visual table designer, schema templates, realistic sample data, ready-to-paste connection snippets for many stacks |
+
+<table>
+  <tr>
+    <td><img alt="Table docs with a Mermaid state diagram and per-column notes" src=".github/assets/docs.webp"></td>
+    <td><img alt="ER diagram of a mock database" src=".github/assets/diagram.webp"></td>
+  </tr>
+  <tr>
+    <td><img alt="Redis browser with namespace tree and hash editor" src=".github/assets/redis.webp"></td>
+    <td><img alt="Setting up an AI agent with one click" src=".github/assets/agents.webp"></td>
+  </tr>
+</table>
 
 ### Sharing
 Workspaces are plain files you can keep in Git. A `.twinbase` bundle carries mocks (with data),
@@ -98,16 +118,36 @@ twinbase mock mongodb --port 27017 --seed test/seed.json
 Mocks accept any credentials by default (so existing configs work) or one user and password.
 See [docs/mock-servers.md](docs/mock-servers.md) for what each protocol supports.
 
+## Bootcamp
+Click the graduation cap in the rail to learn how databases really work — ten chapters, from your
+first `SELECT` to indexes, transactions, storage internals, Redis caching, sharding and vector
+search. Each lesson is a few minutes of plain-language cards with interactive illustrations, then
+quick checks (multiple choice, fill in the blank, match the pairs, put in order…) and hands-on labs
+on real PostgreSQL, Redis and MongoDB mock servers. Earn XP, level up, keep a streak and collect
+badges. The Bootcamp runs in its own workspace, so your projects are never touched.
+See [docs/bootcamp.md](docs/bootcamp.md).
+
+<p align="center">
+  <img alt="The Bootcamp: levels, streaks, chapters and badges" src=".github/assets/bootcamp.webp" width="440">
+  <img alt="A Bootcamp lesson with an interactive embedding space" src=".github/assets/lesson.webp" width="440">
+</p>
+
 ## AI agents
-TwinBase serves MCP on `http://127.0.0.1:47800/mcp` while it runs (token in **Settings → AI agents**,
-with copy-paste setup for each agent), and `twinbase mcp` bridges stdio clients:
+TwinBase serves MCP on `http://127.0.0.1:47800/mcp` while it runs, and `twinbase mcp` bridges stdio
+clients. **Settings → AI agents** detects the agents on your computer and sets each one up with a
+one-line command or a single **Install** click (Claude Code, Codex, Gemini CLI, Antigravity, Cursor,
+VS Code + Copilot, Copilot CLI, Claude Desktop, Windsurf, Kiro, opencode, Zed, Cline and any MCP
+client):
 
 ```sh
-claude mcp add --transport http twinbase http://127.0.0.1:47800/mcp --header "Authorization: Bearer <token>"
+claude mcp add --transport http --scope user twinbase http://127.0.0.1:47800/mcp --header "Authorization: Bearer <token>"
+codex mcp add twinbase -- twinbase mcp
+twinbase agent install cursor        # or gemini, antigravity, vscode, windsurf, kiro, …
 ```
 
-Agents can list and describe tables, run SQL, read and edit rows, preview changes, explain queries,
-create mocks and inject faults, diff schemas and run saved-query scenarios. Saved connections are
+Agents can do everything you can: list and describe tables, run SQL, read and edit rows, preview
+changes, explain queries, read and write docs, create and configure mocks, edit seeds and inject
+faults, diff schemas, run saved-query scenarios, and export or import bundles. Saved connections are
 read-only for agents by default: statements are checked with each database's own quoting rules and
 then run in a read-only transaction. Everything an agent does appears in the **Activity** panel.
 See [docs/mcp.md](docs/mcp.md).
@@ -117,6 +157,7 @@ See [docs/mcp.md](docs/mcp.md).
 twinbase mock <kind> [--port N] [--seed FILE] [--data DIR] [--user U --password P]
 twinbase serve [--workspace DIR]          # mocks and MCP without the window
 twinbase mcp                              # stdio bridge to a running TwinBase
+twinbase agent install <agent>            # set up a coding agent
 twinbase export -o FILE / import FILE     # bundles
 ```
 See [docs/cli.md](docs/cli.md).
@@ -154,6 +195,7 @@ Prerequisites and the test suites are in [CONTRIBUTING.md](CONTRIBUTING.md) and
 [AI agents (MCP)](docs/mcp.md) ·
 [Workspaces and bundles](docs/workspace-format.md) ·
 [CLI](docs/cli.md) ·
+[Bootcamp](docs/bootcamp.md) ·
 [Development](docs/development.md) ·
 [Releasing](docs/releasing.md) ·
 [Performance](docs/performance.md)

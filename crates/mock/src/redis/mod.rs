@@ -58,7 +58,7 @@ impl Server {
     }
 
     fn info(&self, section: Option<&str>) -> String {
-        let keys = self.store.key_count();
+        let keyspace: String = self.store.keyspace().iter().map(|(db, n)| format!("db{db}:keys={n},expires=0,avg_ttl=0\r\n")).collect();
         let sections = [
             (
                 "server",
@@ -73,7 +73,7 @@ impl Server {
             ("persistence", "loading:0\r\nrdb_changes_since_last_save:0\r\naof_enabled:0\r\n".to_owned()),
             ("stats", "total_connections_received:0\r\ntotal_commands_processed:0\r\n".to_owned()),
             ("replication", "role:master\r\nconnected_slaves:0\r\n".to_owned()),
-            ("keyspace", if keys > 0 { format!("db0:keys={keys},expires=0,avg_ttl=0\r\n") } else { String::new() }),
+            ("keyspace", keyspace),
         ];
         let mut out = String::new();
         for (name, body) in sections {

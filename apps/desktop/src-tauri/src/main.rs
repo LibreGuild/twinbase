@@ -3,10 +3,13 @@
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+#[cfg(target_os = "macos")]
+mod traffic_lights;
+
 use std::sync::Arc;
 
 use serde_json::Value;
-use tauri::{Emitter, Manager, RunEvent, State};
+use tauri::{Emitter, Manager, RunEvent, State, WindowEvent};
 use tokio::sync::broadcast::error::RecvError;
 use twinbase_core::{Actor, App, CoreError};
 
@@ -33,6 +36,10 @@ fn main() {
         .manage(core.clone())
         .invoke_handler(tauri::generate_handler![api])
         .setup(move |app| {
+            #[cfg(target_os = "macos")]
+            for window in app.webview_windows().values() {
+                traffic_lights::center(&window.as_ref().window());
+            }
             let handle = app.handle().clone();
             let core = app.state::<Arc<App>>().inner().clone();
             tauri::async_runtime::spawn(async move {
@@ -58,6 +65,15 @@ fn main() {
                 }
             });
             Ok(())
+        })
+        .on_window_event(|_window, _event| {
+            #[cfg(target_os = "macos")]
+            if matches!(
+                _event,
+                WindowEvent::Resized(_) | WindowEvent::Focused(_) | WindowEvent::ThemeChanged(_) | WindowEvent::ScaleFactorChanged { .. }
+            ) {
+                traffic_lights::center(_window);
+            }
         })
         .build(tauri::generate_context!())
         .expect("failed to build the TwinBase window");

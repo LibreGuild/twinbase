@@ -18,6 +18,16 @@ pub fn coerce(v: ValueRef<'_>, ty: &SqlType, dialect: Dialect) -> Result<Value, 
     }
     let my = dialect == Dialect::MySql;
     match ty {
+        SqlType::Vector { family, dim } => {
+            let text = as_text(v);
+            let parsed = crate::vector::Vector::parse(&text, *family)?.convert(*family)?;
+            if let Some(n) = dim
+                && parsed.dim() != *n as usize
+            {
+                return Err(EngineError::new("22000", format!("expected {n} dimensions, not {}", parsed.dim())));
+            }
+            Ok(Value::Text(parsed.to_text()))
+        }
         SqlType::Bool if my => coerce_int(v, -128, 127, ty, dialect),
         SqlType::Bool => coerce_bool(v),
         SqlType::Int1 => coerce_int(v, -128, 127, ty, dialect),

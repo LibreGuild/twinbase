@@ -69,6 +69,14 @@ fn value_for(c: &ColumnInfo, row: usize, rng: &mut impl Rng, unique: bool) -> Va
     if let Some(values) = enum_values(&c.data_type) {
         return Value::String(values.choose(rng).cloned().unwrap_or_default());
     }
+    // pgvector embeddings: unit-length random vectors of the declared size.
+    if ty.starts_with("vector") || ty.starts_with("halfvec") || ty.starts_with("sparsevec") {
+        let dims = max_len(&ty).unwrap_or(3).clamp(1, 4096);
+        let raw: Vec<f64> = (0..dims).map(|_| rng.random_range(-1.0..1.0)).collect();
+        let norm = raw.iter().map(|x| x * x).sum::<f64>().sqrt().max(1e-9);
+        let list = raw.iter().map(|x| format!("{:.4}", x / norm)).collect::<Vec<_>>().join(",");
+        return Value::String(format!("[{list}]"));
+    }
     if ty.contains("bool") || ty == "tinyint(1)" || name.starts_with("is_") || name.starts_with("has_") {
         return json!(rng.random_bool(0.7));
     }
@@ -219,6 +227,26 @@ pub async fn generate(client: &dyn SqlClient, schema: &str, table: &str, count: 
     }
     let unique_cols: Vec<String> = info.indexes.iter().filter(|i| i.unique && i.columns.len() == 1).map(|i| i.columns[0].clone()).collect();
     let cols: Vec<&ColumnInfo> = info.columns.iter().filter(|c| !c.auto).collect();
+    // Multi-column keys (e.g. order_items(order_id, product_id)): rows must not repeat a
+    // combination already in the table or generated earlier in this batch.
+    let mut composite: Vec<Vec<String>> =
+        info.indexes.iter().filter(|i| i.unique && i.columns.len() > 1).map(|i| i.columns.clone()).collect();
+    if info.primary_key.len() > 1 && !composite.contains(&info.primary_key) {
+        composite.push(info.primary_key.clone());
+    }
+    composite.retain(|k| k.iter().all(|c| cols.iter().any(|x| &x.name == c)));
+    let mut seen: Vec<std::collections::HashSet<Vec<String>>> = Vec::new();
+    for key in &composite {
+        let sql = format!(
+            "SELECT {} FROM {} LIMIT 20000",
+            key.iter().map(|c| quote_ident(d, c)).collect::<Vec<_>>().join(", "),
+            qualified(d, schema, table)
+        );
+        let existing = client.query(&sql, 20_000).await?.pop().map(|r| r.rows).unwrap_or_default();
+        seen.push(existing.into_iter().map(|row| row.iter().map(|v| literal(d, v)).collect()).collect());
+    }
+    let key_positions: Vec<Vec<usize>> =
+        composite.iter().map(|k| k.iter().map(|c| cols.iter().position(|x| &x.name == c).unwrap()).collect()).collect();
     // ThreadRng is not Send, so generate everything before the next await.
     let statements = {
         let mut rng = rand::rng();
@@ -227,20 +255,35 @@ pub async fn generate(client: &dyn SqlClient, schema: &str, table: &str, count: 
         for chunk in (0..count).collect::<Vec<_>>().chunks(100) {
             let mut rows = Vec::new();
             for &i in chunk {
-                let vals: Vec<String> = cols
-                    .iter()
-                    .map(|c| {
-                        if let Some((_, keys)) = parents.iter().find(|(col, _)| col == &c.name) {
-                            return keys.choose(&mut rng).map(|k| literal(d, k)).unwrap_or_else(|| "NULL".into());
-                        }
-                        let unique = unique_cols.contains(&c.name) || c.primary_key;
-                        if c.nullable && !unique && c.default.is_none() && rng.random_bool(0.08) {
-                            return "NULL".into();
-                        }
-                        literal(d, &value_for(c, base + i, &mut rng, unique))
-                    })
-                    .collect();
-                rows.push(format!("({})", vals.join(", ")));
+                // A few tries to find a combination not used yet; give up on the row otherwise.
+                for _attempt in 0..25 {
+                    let vals: Vec<String> = cols
+                        .iter()
+                        .map(|c| {
+                            if let Some((_, keys)) = parents.iter().find(|(col, _)| col == &c.name) {
+                                return keys.choose(&mut rng).map(|k| literal(d, k)).unwrap_or_else(|| "NULL".into());
+                            }
+                            // Columns of a composite key are unique together, not one by one.
+                            let unique = unique_cols.contains(&c.name) || (c.primary_key && info.primary_key.len() == 1);
+                            if c.nullable && !unique && c.default.is_none() && rng.random_bool(0.08) {
+                                return "NULL".into();
+                            }
+                            literal(d, &value_for(c, base + i, &mut rng, unique))
+                        })
+                        .collect();
+                    let tuples: Vec<Vec<String>> = key_positions.iter().map(|p| p.iter().map(|&j| vals[j].clone()).collect()).collect();
+                    if tuples.iter().zip(&seen).any(|(t, s)| s.contains(t)) {
+                        continue;
+                    }
+                    for (t, s) in tuples.into_iter().zip(seen.iter_mut()) {
+                        s.insert(t);
+                    }
+                    rows.push(format!("({})", vals.join(", ")));
+                    break;
+                }
+            }
+            if rows.is_empty() {
+                continue;
             }
             let names = cols.iter().map(|c| quote_ident(d, &c.name)).collect::<Vec<_>>().join(", ");
             statements.push(if cols.is_empty() {

@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>TwinBase — database client, real mock servers and a database Bootcamp</title>
+  <meta name="description" content="TwinBase is an open-source desktop database client with built-in wire-protocol mock servers for PostgreSQL (with pgvector), MySQL, SQL Server, Redis, MongoDB, DynamoDB and Firestore, a change preview, docs everywhere, MCP for AI agents and a gamified Bootcamp.">
+  <meta property="og:title" content="TwinBase">
+  <meta property="og:description" content="Your databases, and their twins. A database client and real mock servers in one desktop app.">
+  <meta property="og:image" content="assets/shots/query.webp">
+  <meta name="theme-color" content="#1c1a17">
+  <link rel="icon" href="assets/icon.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="nav">
+    <div class="wrap nav-inner">
+      <a class="brand" href="#top"><img src="assets/icon.png" alt=""> TwinBase</a>
+      <nav class="nav-links" aria-label="Sections">
+        <a href="#mocks">Mock servers</a>
+        <a href="#client">Client</a>
+        <a href="#bootcamp">Bootcamp</a>
+        <a href="#agents">AI agents</a>
+        <a href="https://github.com/LibreGuild/twinbase/tree/main/docs">Docs</a>
+      </nav>
+      <div class="nav-cta">
+        <a class="gh" href="https://github.com/LibreGuild/twinbase" aria-label="GitHub repository">
+          <svg viewBox="0 0 16 16" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38v-1.33c-2.23.48-2.7-1.07-2.7-1.07-.36-.92-.89-1.17-.89-1.17-.73-.5.06-.49.06-.49.8.06 1.23.83 1.23.83.72 1.22 1.88.87 2.34.66.07-.52.28-.87.5-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.6 7.6 0 0 1 4 0c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48v2.2c0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
+        </a>
+        <a class="btn btn-primary btn-sm" href="#download">Download</a>
+      </div>
+    </div>
+  </header>
+
+  <main id="top">
+    <section class="hero">
+      <div class="glow" aria-hidden="true"></div>
+      <div class="wrap hero-inner">
+        <span class="eyebrow">Open source · Windows · macOS · Linux</span>
+        <h1>Your databases,<br><span class="grad">and their twins.</span></h1>
+        <p class="lede">A fast database client and <strong>real wire-protocol mock servers</strong> in one desktop app. Give your code a PostgreSQL, MySQL, SQL Server, Redis, MongoDB, DynamoDB or Firestore server in one click — no Docker. Preview every change before it runs, document everything, let your AI agent help, and learn how databases really work in the built-in Bootcamp.</p>
+        <div class="hero-cta">
+          <a class="btn btn-primary" href="#download">Download TwinBase</a>
+          <a class="btn btn-ghost" href="https://github.com/LibreGuild/twinbase">View on GitHub</a>
+        </div>
+        <div class="window">
+          <img src="assets/shots/query.webp" alt="TwinBase running SQL against a PostgreSQL mock server" width="1600" height="1000">
+        </div>
+      </div>
+    </section>
+
+    <section class="strip" aria-label="Supported databases">
+      <div class="wrap strip-inner">
+        <span>PostgreSQL</span><span>MySQL</span><span>SQL Server</span><span>Redis</span><span>MongoDB</span><span>DynamoDB</span><span>Firestore</span><span>SQLite</span><span>Oracle</span><span>ClickHouse</span><span>Cassandra</span><span>Spanner</span><span>BigQuery</span><span>Elasticsearch</span>
+      </div>
+    </section>
+
+    <section class="section" id="mocks">
+      <div class="wrap split">
+        <div>
+          <span class="kicker">Mock servers</span>
+          <h2>Real protocols. Zero containers.</h2>
+          <p>TwinBase mocks speak the actual wire protocols, so your app, ORM, migration tool or <code>psql</code> connects with its normal driver — only the host and port change. A few megabytes of memory, started in milliseconds.</p>
+          <ul class="ticks">
+            <li><b>PostgreSQL, MySQL and SQL Server</b> on TwinLite, with the real catalogs, types and error codes</li>
+            <li><b>pgvector built in</b>: <code>vector</code>, <code>halfvec</code>, <code>sparsevec</code>, <code>&lt;=&gt;</code>, <code>&lt;-&gt;</code>, HNSW DDL — embedding code runs unchanged</li>
+            <li><b>Redis, MongoDB, DynamoDB, Firestore</b> with SDK-level compatibility</li>
+            <li>Seeds, one-click reset, live traffic, and <b>fault injection</b> to test the unhappy paths</li>
+          </ul>
+          <pre class="code"><span class="c"># the same mocks, headless, in CI</span>
+twinbase mock postgres --port 5433 --seed db/schema.sql
+psql "postgres://dev@127.0.0.1:5433/app"</pre>
+        </div>
+        <figure class="shot"><img src="assets/shots/diagram.webp" alt="ER diagram of a mock database" loading="lazy" width="1600" height="1000"></figure>
+      </div>
+    </section>
+
+    <section class="section alt" id="client">
+      <div class="wrap">
+        <div class="center">
+          <span class="kicker">Database client</span>
+          <h2>Everything you reach for, in one calm place.</h2>
+          <p class="sub">Browse and edit fourteen kinds of databases with the same grid, editors and diagrams.</p>
+        </div>
+        <div class="cards">
+          <article class="card"><div class="ic"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg></div><h3>Change preview</h3><p>Run an <code>UPDATE</code> on a local twin first: every changed, added and removed row — cascades included. The commit is refused if the row count no longer matches.</p></article>
+          <article class="card"><div class="ic"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3v18h18"/><path d="m7 15 4-4 3 3 5-6"/></svg></div><h3>Query plans</h3><p>EXPLAIN, SHOWPLAN, Spanner and BigQuery plans drawn as a tree with the expensive steps highlighted and index hints.</p></article>
+          <article class="card"><div class="ic"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M13 6h3a2 2 0 0 1 2 2v7"/><path d="M11 18H8a2 2 0 0 1-2-2V9"/></svg></div><h3>Schema diff</h3><p>Snapshots, diffs and generated up/down migration scripts, plus DDL conversion between dialects.</p></article>
+          <article class="card"><div class="ic"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 4h6a4 4 0 0 1 4 4v13a3 3 0 0 0-3-3H2z"/><path d="M22 4h-6a4 4 0 0 0-4 4v13a3 3 0 0 1 3-3h7z"/></svg></div><h3>Docs everywhere</h3><p>Markdown with Mermaid diagrams on the workspace, every connection, mock, table and column — plain files you commit with your code.</p></article>
+          <article class="card"><div class="ic"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 2 9 5-9 5-9-5 9-5Z"/><path d="m3 12 9 5 9-5"/><path d="m3 17 9 5 9-5"/></svg></div><h3>Redis, properly</h3><p>Numbered databases, a namespace tree, typed editors, streams, JSON, server info and a script console.</p></article>
+          <article class="card"><div class="ic"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg></div><h3>Local and private</h3><p>No account, no cloud, no telemetry. Passwords live in your OS keychain; SSH tunnels and TLS built in.</p></article>
+        </div>
+        <div class="gallery">
+          <figure class="shot"><img src="assets/shots/docs.webp" alt="Table docs with a Mermaid state diagram" loading="lazy" width="1600" height="1000"><figcaption>Docs with Mermaid diagrams and per-column notes</figcaption></figure>
+          <figure class="shot"><img src="assets/shots/redis.webp" alt="Redis browser" loading="lazy" width="1600" height="1000"><figcaption>Redis: databases, namespaces and typed editors</figcaption></figure>
+        </div>
+      </div>
+    </section>
+
+    <section class="section bootcamp" id="bootcamp">
+      <div class="wrap split reverse">
+        <figure class="shot"><img src="assets/shots/bootcamp.webp" alt="The TwinBase Bootcamp" loading="lazy" width="1600" height="1000"></figure>
+        <div>
+          <span class="kicker kicker-purple">Bootcamp</span>
+          <h2>Learn how databases <em>really</em> work.</h2>
+          <p>Ten chapters, from your first <code>SELECT</code> to indexes, transactions, storage internals, Redis caching, sharding, CAP and vector search. Short lessons in plain words, interactive illustrations, playful quizzes and hands-on labs on real mock servers.</p>
+          <ul class="ticks">
+            <li>Six kinds of quick checks: choice, select-all, true/false, fill-the-blank, match the pairs, put in order</li>
+            <li>Labs auto-checked against real PostgreSQL, Redis and MongoDB servers</li>
+            <li>XP, levels, streaks and sixteen badges to collect</li>
+            <li>Runs in its own workspace — your projects stay untouched</li>
+          </ul>
+        </div>
+      </div>
+      <div class="wrap badges" aria-label="Bootcamp badges">
+        <img src="assets/badges/foundations.webp" alt="Foundations badge" loading="lazy">
+        <img src="assets/badges/sql.webp" alt="Query Crafter badge" loading="lazy">
+        <img src="assets/badges/architect.webp" alt="Data Architect badge" loading="lazy">
+        <img src="assets/badges/speed.webp" alt="Speed Demon badge" loading="lazy">
+        <img src="assets/badges/acid.webp" alt="ACID Keeper badge" loading="lazy">
+        <img src="assets/badges/internals.webp" alt="Under the Hood badge" loading="lazy">
+        <img src="assets/badges/cache.webp" alt="Cache Master badge" loading="lazy">
+        <img src="assets/badges/nosql.webp" alt="Document Ranger badge" loading="lazy">
+        <img src="assets/badges/scale.webp" alt="Scale Architect badge" loading="lazy">
+        <img src="assets/badges/vectors.webp" alt="Vector Voyager badge" loading="lazy">
+        <img src="assets/badges/graduate.webp" alt="Bootcamp Graduate badge" loading="lazy">
+      </div>
+      <div class="wrap">
+        <figure class="shot wide"><img src="assets/shots/lesson.webp" alt="A Bootcamp lesson with an interactive embedding space" loading="lazy" width="1600" height="1000"><figcaption>Interactive lessons: drag a query through embedding space and watch the nearest neighbours change</figcaption></figure>
+      </div>
+    </section>
+
+    <section class="section alt" id="agents">
+      <div class="wrap split">
+        <div>
+          <span class="kicker">AI agents</span>
+          <h2>Your coding agent, with a database it can actually use.</h2>
+          <p>TwinBase is an MCP server. Claude Code, Codex, Gemini CLI, Antigravity, Cursor, VS Code, Windsurf and friends can design schemas, run SQL, edit rows, write docs, manage mocks and inject faults — every action shows up live in the Activity panel.</p>
+          <p>Real databases stay read-only for agents unless you allow writes per connection, and agents can never raise their own access.</p>
+          <pre class="code"><span class="c"># one line, or one click in Settings → AI agents</span>
+claude mcp add --transport http --scope user twinbase \
+  http://127.0.0.1:47800/mcp --header "Authorization: Bearer &lt;token&gt;"
+codex mcp add twinbase -- twinbase mcp
+twinbase agent install cursor</pre>
+        </div>
+        <figure class="shot"><img src="assets/shots/agents.webp" alt="Agent setup in TwinBase settings" loading="lazy" width="1600" height="1000"></figure>
+      </div>
+    </section>
+
+    <section class="section download" id="download">
+      <div class="wrap center">
+        <span class="kicker">Download</span>
+        <h2>Free and open source. Apache-2.0.</h2>
+        <p class="sub">Installers for every platform, with checksums and build provenance on each release.</p>
+        <div class="platforms">
+          <a class="platform" href="https://github.com/LibreGuild/twinbase/releases/latest">
+            <strong>macOS</strong><span>Universal DMG · Apple silicon &amp; Intel</span>
+          </a>
+          <a class="platform" href="https://github.com/LibreGuild/twinbase/releases/latest">
+            <strong>Windows</strong><span>Installer or portable zip · x64</span>
+          </a>
+          <a class="platform" href="https://github.com/LibreGuild/twinbase/releases/latest">
+            <strong>Linux</strong><span>.deb · .rpm · AppImage · x86_64</span>
+          </a>
+        </div>
+        <p class="fine">Builds aren't code-signed yet: on Windows choose <em>More info → Run anyway</em>; on macOS open <em>System Settings → Privacy &amp; Security → Open Anyway</em>.</p>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <div class="wrap footer-inner">
+      <span class="brand small"><img src="assets/icon.png" alt=""> TwinBase</span>
+      <span>Made by <a href="https://github.com/LibreGuild">LibreGuild</a> · <a href="https://github.com/LibreGuild/twinbase/blob/main/LICENSE">Apache-2.0</a> · <a href="https://github.com/LibreGuild/twinbase/discussions">Discussions</a></span>
+    </div>
+  </footer>
+</body>
+</html>

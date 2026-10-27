@@ -12,6 +12,9 @@ fn epoch() -> NaiveDateTime {
 }
 
 pub fn pg_type(ty: &SqlType) -> Type {
+    if let SqlType::Vector { family, .. } = ty {
+        return Type::new(family.name().into(), family.oid(), postgres_types::Kind::Simple, "public".into());
+    }
     Type::from_oid(ty.pg_oid()).unwrap_or(Type::TEXT)
 }
 
@@ -108,6 +111,10 @@ pub fn encode_binary(v: &Value, ty: &SqlType) -> Option<Vec<u8>> {
                 _ => return None,
             };
             encode_array(&items, element)?
+        }
+        SqlType::Vector { family, .. } => {
+            let text = text_of(v, ty);
+            twinbase_engine::vector::Vector::parse(&text, *family).ok()?.to_binary(*family)
         }
         SqlType::Other { name } if matches!(name.as_str(), "oid" | "regclass" | "regtype" | "regproc" | "xid") => {
             (as_i64(v)? as u32).to_be_bytes().to_vec()
@@ -285,6 +292,14 @@ pub fn decode_param(raw: Option<&[u8]>, binary: bool, oid: u32) -> Param {
             }
         }
         2950 => uuid::Uuid::from_slice(b).ok().map(|u| Param::Text(u.hyphenated().to_string())),
+        16390 | 16392 | 16394 => {
+            use twinbase_engine::vector::{Vector, VectorKind};
+            [VectorKind::Vector, VectorKind::Halfvec, VectorKind::Sparsevec]
+                .into_iter()
+                .find(|k| k.oid() == oid)
+                .and_then(|kind| Vector::from_binary(b, kind).ok())
+                .map(|v| Param::Text(v.to_text()))
+        }
         1000 | 1005 | 1007 | 1016 | 1021 | 1022 | 1009 | 1015 | 2951 | 1182 | 1115 | 1185 | 1231 | 3807 | 199 => {
             decode_array(b).map(|items| Param::Text(serde_json::Value::Array(items).to_string()))
         }

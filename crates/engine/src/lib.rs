@@ -14,6 +14,7 @@ pub mod translate;
 pub mod tsql;
 pub mod types;
 pub mod value;
+pub mod vector;
 
 use serde::{Deserialize, Serialize};
 

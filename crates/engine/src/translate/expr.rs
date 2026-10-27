@@ -93,6 +93,8 @@ pub struct Rewriter<'a, 'c> {
     pub error: Option<EngineError>,
     query_depth: usize,
     pub projection: Option<Vec<Option<SqlType>>>,
+    /// Tables of the SELECT that just closed (for its query's ORDER BY).
+    closed_select: Option<Vec<Rel>>,
 }
 
 pub(crate) fn ident(s: &str) -> Ident {
@@ -235,6 +237,7 @@ impl<'a, 'c> Rewriter<'a, 'c> {
             error: None,
             query_depth: 0,
             projection: None,
+            closed_select: None,
         }
     }
 
@@ -368,7 +371,8 @@ impl<'a, 'c> Rewriter<'a, 'c> {
             [.., t, c] => (Some(t.clone()), c.clone()),
             [] => return None,
         };
-        for scope in self.scopes.iter().rev() {
+        // A query's ORDER BY is visited after its SELECT closed; it still sees that SELECT's tables.
+        for scope in self.scopes.iter().rev().chain(self.closed_select.iter()) {
             for rel in scope {
                 if let Some(q) = &qual
                     && !rel.alias.eq_ignore_ascii_case(q)
@@ -416,8 +420,20 @@ impl<'a, 'c> Rewriter<'a, 'c> {
                 | BinaryOperator::GtEq
                 | BinaryOperator::And
                 | BinaryOperator::Or
-                | BinaryOperator::Xor
-                | BinaryOperator::Spaceship => Some(SqlType::Bool),
+                | BinaryOperator::Xor => Some(SqlType::Bool),
+                // pgvector distances.
+                BinaryOperator::Spaceship if self.ctx.dialect == Dialect::Postgres => Some(SqlType::Float8),
+                BinaryOperator::LtDashGt
+                | BinaryOperator::LtCaret
+                | BinaryOperator::GtCaret
+                | BinaryOperator::QuestionDashPipe
+                | BinaryOperator::QuestionDoublePipe => Some(SqlType::Float8),
+                BinaryOperator::Spaceship => Some(SqlType::Bool),
+                BinaryOperator::Plus | BinaryOperator::Minus | BinaryOperator::Multiply | BinaryOperator::StringConcat
+                    if self.vector_family(left, right).is_some() =>
+                {
+                    self.vector_family(left, right).map(|family| SqlType::Vector { family, dim: None })
+                }
                 BinaryOperator::StringConcat => Some(SqlType::Text),
                 BinaryOperator::Arrow => self.infer(left).filter(|t| matches!(t, SqlType::Json | SqlType::Jsonb)).or(Some(SqlType::Jsonb)),
                 BinaryOperator::LongArrow => Some(SqlType::Text),
@@ -469,6 +485,23 @@ impl<'a, 'c> Rewriter<'a, 'c> {
                 let path = self.ctx.search_path;
                 SqlType::parse(&spec, self.ctx.dialect, &|n| cat.enum_values(n, path)).ty
             }
+            "tb_vec_l2" | "tb_vec_ip" | "tb_vec_neg_ip" | "tb_vec_cos" | "tb_vec_l1" | "tb_vec_norm" | "tb_bit_hamming"
+            | "tb_bit_jaccard" | "l2_distance" | "inner_product" | "cosine_distance" | "l1_distance" | "vector_norm" | "l2_norm"
+            | "hamming_distance" | "jaccard_distance" | "vector_distance" => SqlType::Float8,
+            "tb_vec_dims" | "vector_dims" | "vector_dim" => SqlType::Int4,
+            "tb_vec_binary_quantize" | "binary_quantize" => SqlType::Other { name: "bit".into() },
+            "tb_vec_normalize" | "tb_vec_subvector" | "tb_vec_arith" => {
+                let family = args.iter().rev().find_map(string_value).and_then(|n| crate::vector::VectorKind::from_name(&n))?;
+                SqlType::Vector { family, dim: None }
+            }
+            "tb_vec_avg" | "tb_vec_sum" | "l2_normalize" | "subvector" => match arg0() {
+                Some(SqlType::Vector { family, .. }) => SqlType::Vector { family, dim: None },
+                _ => SqlType::Vector { family: crate::vector::VectorKind::Vector, dim: None },
+            },
+            "sum" | "avg" if matches!(arg0(), Some(SqlType::Vector { .. })) => match arg0() {
+                Some(SqlType::Vector { family, .. }) => SqlType::Vector { family, dim: None },
+                _ => unreachable!(),
+            },
             // SQL Server's COUNT is an int (COUNT_BIG becomes a bigint cast).
             "count" if self.ctx.dialect == Dialect::MsSql => SqlType::Int4,
             "count" => SqlType::Int8,
@@ -1009,8 +1042,55 @@ impl<'a, 'c> Rewriter<'a, 'c> {
         }
     }
 
+    /// The pgvector type family of either operand, if any.
+    fn vector_family(&self, left: &Expr, right: &Expr) -> Option<crate::vector::VectorKind> {
+        match (self.infer(left), self.infer(right)) {
+            (Some(SqlType::Vector { family, .. }), _) | (_, Some(SqlType::Vector { family, .. })) => Some(family),
+            _ => None,
+        }
+    }
+
+    /// pgvector operators: distances (`<->`, `<#>`, `<=>`, `<+>`, `<~>`, `<%>`) and element-wise
+    /// arithmetic or concatenation of vectors.
+    fn rewrite_vector_op(&mut self, left: &mut Box<Expr>, op: &BinaryOperator, right: &mut Box<Expr>) -> Option<Expr> {
+        if self.ctx.dialect != Dialect::Postgres {
+            return None;
+        }
+        let f = match op {
+            BinaryOperator::LtDashGt => "tb_vec_l2",
+            BinaryOperator::Spaceship => "tb_vec_cos",
+            BinaryOperator::LtCaret => "tb_vec_neg_ip",
+            BinaryOperator::GtCaret => "tb_vec_l1",
+            BinaryOperator::QuestionDashPipe => "tb_bit_hamming",
+            BinaryOperator::QuestionDoublePipe => "tb_bit_jaccard",
+            BinaryOperator::Plus | BinaryOperator::Minus | BinaryOperator::Multiply | BinaryOperator::StringConcat => {
+                let family = self.vector_family(left, right)?;
+                let sym = match op {
+                    BinaryOperator::Plus => "+",
+                    BinaryOperator::Minus => "-",
+                    BinaryOperator::Multiply => "*",
+                    _ => "||",
+                };
+                return Some(call("tb_vec_arith", vec![(**left).clone(), (**right).clone(), lit(sym), lit(family.name())]));
+            }
+            _ => return None,
+        };
+        // Parameters on the other side of a vector column are vectors too.
+        if f.starts_with("tb_vec") {
+            if let Some(SqlType::Vector { family, .. }) = self.infer(left) {
+                self.hint_param(right, &SqlType::Vector { family, dim: None });
+            } else if let Some(SqlType::Vector { family, .. }) = self.infer(right) {
+                self.hint_param(left, &SqlType::Vector { family, dim: None });
+            }
+        }
+        Some(call(f, vec![(**left).clone(), (**right).clone()]))
+    }
+
     fn rewrite_binary(&mut self, left: &mut Box<Expr>, op: &BinaryOperator, right: &mut Box<Expr>) -> Option<Expr> {
         let my = self.ctx.dialect == Dialect::MySql;
+        if let Some(e) = self.rewrite_vector_op(left, op, right) {
+            return Some(e);
+        }
         match op {
             BinaryOperator::Eq
             | BinaryOperator::NotEq
@@ -1198,6 +1278,51 @@ impl<'a, 'c> Rewriter<'a, 'c> {
         }
     }
 
+    /// pgvector (PostgreSQL), MySQL 9 and SQL Server 2025 vector functions.
+    fn rewrite_vector_function(&mut self, name: &str, args: &[Expr]) -> Option<Expr> {
+        use crate::vector::VectorKind;
+        let a = |i: usize| args.get(i).cloned().unwrap_or_else(|| Expr::Value(Value::Null.with_empty_span()));
+        let family = || match args.first().and_then(|e| self.infer(e)) {
+            Some(SqlType::Vector { family, .. }) => family,
+            _ => VectorKind::Vector,
+        };
+        let metric = |m: &str| match m.to_ascii_lowercase().as_str() {
+            "cosine" => Some("tb_vec_cos"),
+            "euclidean" | "l2" => Some("tb_vec_l2"),
+            "dot" => Some("tb_vec_neg_ip"),
+            "manhattan" | "l1" => Some("tb_vec_l1"),
+            _ => None,
+        };
+        Some(match (self.ctx.dialect, name) {
+            (_, "l2_distance") => call("tb_vec_l2", vec![a(0), a(1)]),
+            (_, "inner_product") => call("tb_vec_ip", vec![a(0), a(1)]),
+            (_, "cosine_distance") => call("tb_vec_cos", vec![a(0), a(1)]),
+            (_, "l1_distance") => call("tb_vec_l1", vec![a(0), a(1)]),
+            (_, "vector_dims") | (Dialect::MySql, "vector_dim") => call("tb_vec_dims", vec![a(0)]),
+            (_, "vector_norm") | (_, "l2_norm") => call("tb_vec_norm", vec![a(0)]),
+            (_, "l2_normalize") => call("tb_vec_normalize", vec![a(0), lit(family().name())]),
+            (_, "subvector") => call("tb_vec_subvector", vec![a(0), a(1), a(2), lit(family().name())]),
+            (_, "binary_quantize") => call("tb_vec_binary_quantize", vec![a(0)]),
+            (_, "hamming_distance") => call("tb_bit_hamming", vec![a(0), a(1)]),
+            (_, "jaccard_distance") => call("tb_bit_jaccard", vec![a(0), a(1)]),
+            (_, "avg") if matches!(args.first().and_then(|e| self.infer(e)), Some(SqlType::Vector { .. })) => {
+                call("tb_vec_avg", vec![a(0)])
+            }
+            (_, "sum") if matches!(args.first().and_then(|e| self.infer(e)), Some(SqlType::Vector { .. })) => {
+                call("tb_vec_sum", vec![a(0)])
+            }
+            // MySQL 9: STRING_TO_VECTOR, VECTOR_TO_STRING, DISTANCE(a, b, 'COSINE').
+            (Dialect::MySql, "string_to_vector" | "to_vector") => {
+                self.cast_to(a(0), &SqlType::Vector { family: VectorKind::Vector, dim: None })
+            }
+            (Dialect::MySql, "vector_to_string" | "from_vector") => a(0),
+            (Dialect::MySql, "distance") => call(metric(&string_value(&a(2)).unwrap_or_default())?, vec![a(0), a(1)]),
+            // SQL Server 2025: VECTOR_DISTANCE('cosine', a, b).
+            (Dialect::MsSql, "vector_distance") => call(metric(&string_value(&a(0)).unwrap_or_default())?, vec![a(1), a(2)]),
+            _ => return None,
+        })
+    }
+
     fn rewrite_function(&mut self, f: &mut Function) -> Option<Expr> {
         let name = func_name(f);
         let args = func_args(f);
@@ -1234,6 +1359,9 @@ impl<'a, 'c> Rewriter<'a, 'c> {
         if self.ctx.dialect == Dialect::MsSql
             && let Some(e) = self.rewrite_tsql_function(&name, &args)
         {
+            return Some(e);
+        }
+        if let Some(e) = self.rewrite_vector_function(&name, &args) {
             return Some(e);
         }
         match name.as_str() {
@@ -1546,6 +1674,7 @@ impl VisitorMut for Rewriter<'_, '_> {
         }
         self.ctes.pop();
         self.query_depth -= 1;
+        self.closed_select = None;
         ControlFlow::Continue(())
     }
 
@@ -1564,7 +1693,7 @@ impl VisitorMut for Rewriter<'_, '_> {
         if self.query_depth == 1 && self.projection.is_none() {
             self.projection = Some(self.projection_types(&s.projection));
         }
-        self.scopes.pop();
+        self.closed_select = self.scopes.pop();
         ControlFlow::Continue(())
     }
 

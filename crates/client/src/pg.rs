@@ -245,6 +245,30 @@ impl SqlClient for PgClient {
             .text_rows(&format!("SELECT tablename, indexname, indexdef FROM pg_indexes WHERE schemaname = {lit}"))
             .await
             .unwrap_or_default();
+        // Extension types (pgvector `halfvec(1536)`, PostGIS `geometry(Point,4326)`…) are only
+        // "USER-DEFINED" in information_schema; format_type() has their full declaration.
+        let mut columns = columns;
+        if columns.iter().any(|r| r.get(2).cloned().flatten().as_deref() == Some("USER-DEFINED")) {
+            let full = self
+                .text_rows(&format!(
+                    "SELECT c.relname, a.attname, format_type(a.atttypid, a.atttypmod) FROM pg_attribute a \
+                     JOIN pg_class c ON c.oid = a.attrelid JOIN pg_namespace n ON n.oid = c.relnamespace \
+                     WHERE n.nspname = {lit} AND a.attnum > 0 AND NOT a.attisdropped"
+                ))
+                .await
+                .unwrap_or_default();
+            let full: HashMap<(String, String), String> =
+                full.into_iter().filter_map(|r| Some(((r.first()?.clone()?, r.get(1)?.clone()?), r.get(2)?.clone()?))).collect();
+            for r in columns.iter_mut() {
+                if r.get(2).cloned().flatten().as_deref() == Some("USER-DEFINED")
+                    && let (Some(Some(t)), Some(Some(c))) = (r.first(), r.get(1))
+                    && let Some(ty) = full.get(&(t.clone(), c.clone()))
+                    && r.len() > 3
+                {
+                    r[3] = Some(ty.clone());
+                }
+            }
+        }
         Ok(assemble(schema, tables, columns, keys, fks, indexes))
     }
 

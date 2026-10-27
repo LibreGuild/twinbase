@@ -704,6 +704,13 @@ const PG_TYPES: &[(u32, &str, i64, &str, u32, u32)] = &[
     (2951, "_uuid", -1, "A", 0, 2950),
     (199, "_json", -1, "A", 0, 114),
     (3807, "_jsonb", -1, "A", 0, 3802),
+    // pgvector (see vector.rs for the fixed OIDs).
+    (16390, "vector", -1, "U", 16391, 0),
+    (16391, "_vector", -1, "A", 0, 16390),
+    (16392, "halfvec", -1, "U", 16393, 0),
+    (16393, "_halfvec", -1, "A", 0, 16392),
+    (16394, "sparsevec", -1, "U", 16395, 0),
+    (16395, "_sparsevec", -1, "A", 0, 16394),
 ];
 
 fn rule_code(action: Option<&str>) -> &'static str {
@@ -830,6 +837,7 @@ pub fn populate_pg_catalog(conn: &Connection, cat: &Catalog, settings: &[(String
                     other => other.pg_oid() as i64,
                 };
                 let typmod = match &col.ty {
+                    SqlType::Vector { dim: Some(n), .. } => *n as i64,
                     SqlType::Varchar { len: Some(l) } | SqlType::Char { len: Some(l) } => *l as i64 + 4,
                     SqlType::Numeric { precision: Some(p), scale } => ((*p as i64) << 16 | scale.unwrap_or(0) as i64) + 4,
                     _ => -1,
@@ -1312,13 +1320,22 @@ pub fn populate_pg_catalog(conn: &Connection, cat: &Catalog, settings: &[(String
         CatTable {
             name: "pg_am",
             columns: &[("oid", "OID"), ("amname", "NAME"), ("amtype", "CHAR")],
-            rows: vec![vec![i(403), t("btree"), t("i")], vec![i(2), t("heap"), t("t")]],
+            rows: vec![
+                vec![i(403), t("btree"), t("i")],
+                vec![i(2), t("heap"), t("t")],
+                vec![i(405), t("hash"), t("i")],
+                vec![i(783), t("gist"), t("i")],
+                vec![i(2742), t("gin"), t("i")],
+                vec![i(16400), t("hnsw"), t("i")],
+                vec![i(16401), t("ivfflat"), t("i")],
+            ],
         },
         CatTable { name: "pg_tablespace", columns: &[("oid", "OID"), ("spcname", "NAME")], rows: vec![vec![i(1663), t("pg_default")]] },
         CatTable {
             name: "pg_extension",
             columns: &[("oid", "OID"), ("extname", "NAME"), ("extowner", "OID"), ("extnamespace", "OID"), ("extversion", "TEXT")],
-            rows: vec![vec![i(13500), t("plpgsql"), i(owner), i(11), t("1.0")]],
+            // pgvector is built in, so `CREATE EXTENSION vector` always succeeds.
+            rows: vec![vec![i(13500), t("plpgsql"), i(owner), i(11), t("1.0")], vec![i(16389), t("vector"), i(owner), i(2200), t("0.8.0")]],
         },
         CatTable {
             name: "pg_language",
