@@ -94,7 +94,8 @@ impl App {
 /// Dispatch one API call.
 pub async fn call(app: &Arc<App>, method: &str, params: Value, actor: &Actor) -> Result<Value> {
     let started = Instant::now();
-    let result = dispatch(app, method, &params, actor).await;
+    // Boxed so callers (the MCP tools, the HTTP API) don't inline this very large future.
+    let result = Box::pin(dispatch(app, method, &params, actor)).await;
     let elapsed = started.elapsed().as_secs_f64() * 1000.0;
     let mutating = !matches!(
         method,

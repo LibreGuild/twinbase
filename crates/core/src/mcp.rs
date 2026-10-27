@@ -563,7 +563,9 @@ fn core_tools() -> Vec<ToolDef> {
 /// Translate a tool call into API calls.
 async fn call_tool(app: &Arc<App>, name: &str, args: Value, actor: &Actor) -> crate::error::Result<Value> {
     let a = |k: &str| args.get(k).cloned().unwrap_or(Value::Null);
-    let call = |method: &'static str, params: Value| api::call(app, method, params, actor);
+    // Boxed: the API's dispatch future is large, and inlining it into every arm here would make
+    // this future overflow a runtime worker's stack.
+    let call = |method: &'static str, params: Value| Box::pin(api::call(app, method, params, actor));
     match name {
         "list_connections" => {
             let data = app.data();
