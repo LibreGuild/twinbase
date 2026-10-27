@@ -13,9 +13,9 @@ twinbase-client.workspace = true
 anyhow.workspace = true
 async-trait.workspace = true
 axum = "0.8"
-base64 = "0.22"
+base64 = "0.23"
 chrono.workspace = true
-dirs = "6"
+dirs = "7"
 futures.workspace = true
 parking_lot.workspace = true
 rand.workspace = true
@@ -25,7 +25,7 @@ sqlparser.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tokio-stream = { version = "0.1", features = ["sync"] }
-toml = "0.9"
+toml = "1.1"
 tracing.workspace = true
 uuid.workspace = true
 zip = { version = "9", default-features = false, features = ["deflate"] }
