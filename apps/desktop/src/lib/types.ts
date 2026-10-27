@@ -10,6 +10,7 @@ export type Cell = null | boolean | number | string;
 export interface ConnectionDef {
   id: string;
   name: string;
+  docs?: string;
   kind: DbKind;
   host: string;
   port: number;
@@ -58,6 +59,7 @@ export interface FaultConfig {
 export interface MockDef {
   id: string;
   name: string;
+  docs?: string;
   kind: MockKind;
   host: string;
   port: number;
@@ -261,7 +263,15 @@ export type RedisValue =
   | { type: "hash"; fields: [string, string][] }
   | { type: "set"; members: string[] }
   | { type: "zset"; members: [string, number][] }
+  | { type: "stream"; entries: [string, [string, string][]][] }
+  | { type: "json"; value: string }
   | { type: "none" };
+
+export interface RedisDatabase {
+  db: number;
+  keys: number;
+  expires: number;
+}
 
 export interface Snippet {
   id: string;
@@ -315,6 +325,14 @@ export interface AgentSetup {
   kind: "command" | "json" | "toml" | "text";
   steps: string;
   config: string;
+  /** One line to paste into a terminal, when the agent has an install command. */
+  command?: string | null;
+  /** Config file TwinBase can update with one click. */
+  install?: { path: string; installed: boolean };
+  /** Deep link that installs the server (Cursor). */
+  link?: string;
+  /** The agent's config folder exists on this computer. */
+  detected: boolean;
 }
 
 export interface McpConfig {

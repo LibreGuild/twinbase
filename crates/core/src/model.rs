@@ -9,6 +9,7 @@
 //!   mocks/<id>/data/                 mock data (when persisted)
 //!   queries/<collection>/_collection.toml
 //!   queries/<collection>/<id>.toml   saved queries with docs
+//!   README.md, */docs/               documentation (see `docs.rs`)
 //! ```
 
 use std::path::{Path, PathBuf};
@@ -56,6 +57,9 @@ pub struct ConnectionDef {
     pub path: Option<String>,
     #[serde(default)]
     pub tls: TlsMode,
+    /// Markdown documentation of this connection.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub docs: String,
     /// UI accent colour (e.g. red for production).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub color: Option<String>,
@@ -110,6 +114,9 @@ pub struct MockDef {
     pub auto_start: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+    /// Markdown documentation of this mock server.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub docs: String,
     /// Fault injection (latency, errors, dropped connections); applied live while running.
     #[serde(default, skip_serializing_if = "FaultConfig::is_default")]
     pub faults: FaultConfig,
@@ -184,6 +191,7 @@ impl MockDef {
         ConnectionDef {
             id: mock_connection_id(&self.id),
             name: self.name.clone(),
+            docs: self.docs.clone(),
             kind: self.db_kind(),
             host: if self.host == "0.0.0.0" { "127.0.0.1".into() } else { self.host.clone() },
             port: self.port,
@@ -524,6 +532,7 @@ mod tests {
         ws.save_connection(&ConnectionDef {
             id: "prod".into(),
             name: "Prod".into(),
+            docs: "Production database. **Read-only.**".into(),
             kind: DbKind::Postgres,
             host: "db".into(),
             port: 5432,
@@ -549,6 +558,7 @@ mod tests {
             persist: true,
             auto_start: false,
             description: None,
+            docs: String::new(),
             faults: Default::default(),
             engine: Default::default(),
         })

@@ -5,33 +5,12 @@ import { FileDown, FileUp, FolderOpen, Sparkles } from "lucide-react";
 import { useState } from "react";
 import { ConfirmDialog, Dialog, ErrorBox, Field, Spinner, useAsync } from "../components/ui";
 import { call, errorMessage, pickPath } from "../lib/api";
-import { renderMarkdown } from "../lib/markdown";
+import { DocsEditor } from "../components/Markdown";
 import { switchWorkspace, useStore } from "../lib/store";
 import type { Collection, Expectation, SavedQuery, SnapshotInfo } from "../lib/types";
 import { ConnectionDialog, MockDialog } from "./ConnectionDialogs";
 import { TableDesigner } from "./TableDesigner";
 import { SettingsDialog } from "../views/SettingsView";
-
-function DocsEditor({ value, onChange, rows = 6 }: { value: string; onChange: (v: string) => void; rows?: number }) {
-  const [preview, setPreview] = useState(false);
-  return (
-    <div>
-      <div className="seg" style={{ marginBottom: 6 }}>
-        <button className={!preview ? "on" : ""} onClick={() => setPreview(false)}>
-          Write
-        </button>
-        <button className={preview ? "on" : ""} onClick={() => setPreview(true)}>
-          Preview
-        </button>
-      </div>
-      {preview ? (
-        <div className="markdown note-box" style={{ minHeight: rows * 20 }} dangerouslySetInnerHTML={{ __html: renderMarkdown(value) || "<p class='faint'>Nothing to preview</p>" }} />
-      ) : (
-        <textarea className="textarea" style={{ width: "100%" }} rows={rows} value={value} onChange={(e) => onChange(e.target.value)} placeholder="Markdown: why this query exists, parameters, expected results, caveats…" />
-      )}
-    </div>
-  );
-}
 
 function SaveQueryDialog({ tabId, sql, connection, saved, onClose }: { tabId: string; sql: string; connection?: string; saved?: { collection: string; id: string }; onClose: () => void }) {
   const ws = useStore((s) => s.workspace)!;

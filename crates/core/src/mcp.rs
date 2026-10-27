@@ -16,6 +16,7 @@ pub const PROTOCOL_VERSIONS: &[&str] = &["2025-11-25", "2025-06-18", "2025-03-26
 
 const INSTRUCTIONS: &str = "TwinBase is a database client and mock-server app running on the user's machine. \
 Use list_connections first: it returns connection ids (mock servers have ids like 'mock:<id>'). \
+get_workspace and get_docs return the team's notes on databases, tables and columns; read them before changing a schema, and keep them current with set_docs. \
 Mock servers speak real PostgreSQL/MySQL/Redis/MongoDB/DynamoDB/Firestore protocols, so application code can connect to them. \
 For MongoDB connections use mongo_query with mongosh syntax (db.users.find({age: {$gt: 30}})); for DynamoDB use dynamodb_request with the DynamoDB API; for Firestore use firestore_query. \
 Prefer mock servers for experiments. Real servers are read-only for agents unless the user allowed writes. \
@@ -37,7 +38,199 @@ fn schema_prop() -> Value {
     json!({ "type": "string", "description": "Schema (PostgreSQL) or database (MySQL). Defaults to public / the connection's database." })
 }
 
+fn redis_db() -> Value {
+    json!({ "type": "integer", "description": "Numbered database (SELECT n); default: the connection's." })
+}
+
+fn id_only(desc: &str) -> Value {
+    json!({ "type": "object", "properties": { "id": { "type": "string", "description": desc } }, "required": ["id"] })
+}
+
 fn tools() -> Vec<ToolDef> {
+    let mut all = core_tools();
+    all.extend(more_tools());
+    all
+}
+
+/// Workspace, docs, connection, seed, bundle and history tools.
+fn more_tools() -> Vec<ToolDef> {
+    vec![
+        ToolDef {
+            name: "get_workspace",
+            title: "Workspace overview",
+            description: "The open workspace: name, folder, README, and counts of connections, mock servers, saved queries and snapshots.",
+            schema: json!({ "type": "object", "properties": {} }),
+            read_only: true,
+        },
+        ToolDef {
+            name: "get_docs",
+            title: "Read documentation",
+            description: "Markdown docs. No target: the workspace README. target only: docs of a connection or mock server plus the list of documented objects. target + object: docs of a table/collection/index and its columns.",
+            schema: json!({ "type": "object", "properties": {
+                "target": { "type": "string", "description": "Connection id, mock id or 'mock:<id>'." },
+                "object": { "type": "string", "description": "e.g. 'public.users' for SQL tables, 'app.orders' for MongoDB collections." }
+            } }),
+            read_only: true,
+        },
+        ToolDef {
+            name: "set_docs",
+            title: "Write documentation",
+            description: "Replace Markdown docs (```mermaid diagrams render in the app). Same addressing as get_docs; for objects, `columns` maps column/field names to short descriptions (empty string removes one).",
+            schema: json!({ "type": "object", "properties": {
+                "target": { "type": "string" }, "object": { "type": "string" },
+                "docs": { "type": "string" },
+                "columns": { "type": "object", "additionalProperties": { "type": "string" } }
+            }, "required": ["docs"] }),
+            read_only: false,
+        },
+        ToolDef {
+            name: "redis_databases",
+            title: "Redis databases",
+            description: "Numbered databases holding keys (from INFO keyspace) and how many the server has.",
+            schema: json!({ "type": "object", "properties": { "connection": conn() }, "required": ["connection"] }),
+            read_only: true,
+        },
+        ToolDef {
+            name: "save_connection",
+            title: "Save connection",
+            description: "Create or update a saved connection (PostgreSQL, MySQL, SQL Server, SQLite, Redis, MongoDB, …). New connections are read-only for agents; agents cannot change a connection's access level.",
+            schema: json!({ "type": "object", "properties": {
+                "id": { "type": "string", "description": "Existing id to update; omit to create." },
+                "name": { "type": "string" },
+                "kind": { "type": "string", "enum": ["postgres", "mysql", "mssql", "sqlite", "clickhouse", "cassandra", "oracle", "redis", "mongodb", "dynamodb", "firestore", "elasticsearch", "spanner", "bigquery"] },
+                "host": { "type": "string" }, "port": { "type": "integer" }, "user": { "type": "string" },
+                "database": { "type": "string" }, "path": { "type": "string", "description": "SQLite file." },
+                "password": { "type": "string", "description": "Stored in the OS keychain, never in workspace files." }
+            }, "required": ["name", "kind"] }),
+            read_only: false,
+        },
+        ToolDef {
+            name: "test_connection",
+            title: "Test connection",
+            description: "Try to connect with a saved connection and report the server version.",
+            schema: id_only("Connection id."),
+            read_only: true,
+        },
+        ToolDef {
+            name: "delete_connection",
+            title: "Delete connection",
+            description: "Remove a saved connection and its stored password (the database itself is untouched). Only connections that allow agent writes.",
+            schema: id_only("Connection id."),
+            read_only: false,
+        },
+        ToolDef {
+            name: "update_mock_server",
+            title: "Update mock server",
+            description: "Change a mock server's name, port, database, persistence, auto-start or engine. A running mock restarts.",
+            schema: json!({ "type": "object", "properties": {
+                "id": { "type": "string" }, "name": { "type": "string" }, "port": { "type": "integer" }, "database": { "type": "string" },
+                "persist": { "type": "boolean" }, "auto_start": { "type": "boolean" },
+                "engine": { "type": "string", "enum": ["twinlite", "native"] }
+            }, "required": ["id"] }),
+            read_only: false,
+        },
+        ToolDef {
+            name: "delete_mock_server",
+            title: "Delete mock server",
+            description: "Stop a mock server and delete its definition, data and seed.",
+            schema: id_only("Mock id (without 'mock:')."),
+            read_only: false,
+        },
+        ToolDef {
+            name: "get_mock_seed",
+            title: "Read mock seed",
+            description: "The seed a mock loads on reset: SQL, Redis commands, or JSON for MongoDB/DynamoDB/Firestore.",
+            schema: id_only("Mock id."),
+            read_only: true,
+        },
+        ToolDef {
+            name: "set_mock_seed",
+            title: "Write mock seed",
+            description: "Replace a mock's seed (checked first). Reset the mock to load it.",
+            schema: json!({ "type": "object", "properties": { "id": { "type": "string" }, "seed": { "type": "string" } }, "required": ["id", "seed"] }),
+            read_only: false,
+        },
+        ToolDef {
+            name: "capture_mock_seed",
+            title: "Capture data as seed",
+            description: "Turn a running mock's current data into its seed, so resets come back to this state.",
+            schema: id_only("Mock id."),
+            read_only: false,
+        },
+        ToolDef {
+            name: "get_mock_traffic",
+            title: "Mock traffic",
+            description: "Recent statements and commands a mock server received from applications, with timings and errors.",
+            schema: json!({ "type": "object", "properties": { "id": { "type": "string" }, "limit": { "type": "integer", "description": "Default 100." } }, "required": ["id"] }),
+            read_only: true,
+        },
+        ToolDef {
+            name: "get_query_history",
+            title: "Query history",
+            description: "Statements recently run on a connection (by the user and agents), newest first.",
+            schema: json!({ "type": "object", "properties": { "connection": conn() }, "required": ["connection"] }),
+            read_only: true,
+        },
+        ToolDef {
+            name: "delete_saved_query",
+            title: "Delete saved query",
+            description: "Delete one saved query.",
+            schema: json!({ "type": "object", "properties": { "collection": { "type": "string" }, "id": { "type": "string" } }, "required": ["collection", "id"] }),
+            read_only: false,
+        },
+        ToolDef {
+            name: "save_collection",
+            title: "Save query collection",
+            description: "Create or rename a query collection, with Markdown docs.",
+            schema: json!({ "type": "object", "properties": { "id": { "type": "string" }, "name": { "type": "string" }, "docs": { "type": "string" } }, "required": ["name"] }),
+            read_only: false,
+        },
+        ToolDef {
+            name: "delete_collection",
+            title: "Delete query collection",
+            description: "Delete a collection and every saved query in it.",
+            schema: id_only("Collection id."),
+            read_only: false,
+        },
+        ToolDef {
+            name: "get_schema_snapshot",
+            title: "Read schema snapshot",
+            description: "Tables, columns, keys and indexes captured in a snapshot.",
+            schema: id_only("Snapshot id from list_schema_snapshots."),
+            read_only: true,
+        },
+        ToolDef {
+            name: "delete_schema_snapshot",
+            title: "Delete schema snapshot",
+            description: "Delete a schema snapshot.",
+            schema: id_only("Snapshot id."),
+            read_only: false,
+        },
+        ToolDef {
+            name: "export_bundle",
+            title: "Export bundle",
+            description: "Write a .twinbase bundle (mocks with data, query collections, connections without passwords, snapshots) into the workspace's exports/ folder. Returns the file path.",
+            schema: json!({ "type": "object", "properties": {
+                "name": { "type": "string", "description": "File name without extension." },
+                "mocks": { "type": "array", "items": { "type": "string" } },
+                "collections": { "type": "array", "items": { "type": "string" } },
+                "connections": { "type": "array", "items": { "type": "string" } },
+                "snapshots": { "type": "array", "items": { "type": "string" } },
+                "include_data": { "type": "boolean", "description": "Include mock data (default true)." }
+            }, "required": ["name"] }),
+            read_only: false,
+        },
+        ToolDef {
+            name: "import_bundle",
+            title: "Import bundle",
+            description: "Import a .twinbase bundle file into the workspace (ids are renamed when they clash). Use inspect first to see what it contains.",
+            schema: json!({ "type": "object", "properties": { "path": { "type": "string" }, "inspect": { "type": "boolean", "description": "Only list the contents." } }, "required": ["path"] }),
+            read_only: false,
+        },
+    ]
+}
+
+fn core_tools() -> Vec<ToolDef> {
     vec![
         ToolDef {
             name: "list_connections",
@@ -231,22 +424,22 @@ fn tools() -> Vec<ToolDef> {
         ToolDef {
             name: "redis_command",
             title: "Redis command",
-            description: "Run a Redis command line, e.g. HSET user:1 name \"Ann\".",
-            schema: json!({ "type": "object", "properties": { "connection": conn(), "command": { "type": "string" } }, "required": ["connection", "command"] }),
+            description: "Run a Redis command line, e.g. HSET user:1 name \"Ann\". SELECT, MULTI/EXEC and SUBSCRIBE are not available; pass db to use another numbered database.",
+            schema: json!({ "type": "object", "properties": { "connection": conn(), "command": { "type": "string" }, "db": redis_db() }, "required": ["connection", "command"] }),
             read_only: false,
         },
         ToolDef {
             name: "redis_scan",
             title: "Scan Redis keys",
             description: "List keys with type and TTL.",
-            schema: json!({ "type": "object", "properties": { "connection": conn(), "pattern": { "type": "string" }, "type": { "type": "string" } }, "required": ["connection"] }),
+            schema: json!({ "type": "object", "properties": { "connection": conn(), "pattern": { "type": "string" }, "type": { "type": "string" }, "db": redis_db() }, "required": ["connection"] }),
             read_only: true,
         },
         ToolDef {
             name: "redis_get",
             title: "Get Redis value",
-            description: "Read a key's value with its type.",
-            schema: json!({ "type": "object", "properties": { "connection": conn(), "key": { "type": "string" } }, "required": ["connection", "key"] }),
+            description: "Read a key's value with its type (strings, hashes, lists, sets, sorted sets, streams, RedisJSON).",
+            schema: json!({ "type": "object", "properties": { "connection": conn(), "key": { "type": "string" }, "db": redis_db() }, "required": ["connection", "key"] }),
             read_only: true,
         },
         ToolDef {
@@ -448,9 +641,115 @@ async fn call_tool(app: &Arc<App>, name: &str, args: Value, actor: &Actor) -> cr
             }))
         }
         "export_schema_ddl" => call("db.ddl", json!({ "connection": a("connection"), "schema": a("schema"), "dialect": a("dialect") })).await,
-        "redis_command" => call("redis.command", json!({ "connection": a("connection"), "command": a("command") })).await,
-        "redis_scan" => call("redis.scan", json!({ "connection": a("connection"), "pattern": a("pattern").as_str().unwrap_or("*"), "type": a("type").as_str().unwrap_or(""), "count": 1000 })).await,
-        "redis_get" => call("redis.get", json!({ "connection": a("connection"), "key": a("key") })).await,
+        "redis_command" => call("redis.command", json!({ "connection": a("connection"), "command": a("command"), "db": a("db") })).await,
+        "redis_scan" => {
+            call("redis.scan", json!({ "connection": a("connection"), "pattern": a("pattern").as_str().unwrap_or("*"), "type": a("type").as_str().unwrap_or(""), "count": 1000, "db": a("db") })).await
+        }
+        "redis_get" => call("redis.get", json!({ "connection": a("connection"), "key": a("key"), "db": a("db") })).await,
+        "redis_databases" => call("redis.databases", json!({ "connection": a("connection") })).await,
+        "get_workspace" => {
+            let data = app.data();
+            let readme = call("docs.get", json!({})).await?;
+            Ok(json!({
+                "name": data.name, "path": data.path, "readme": readme["docs"],
+                "connections": data.connections.len(), "mock_servers": data.mocks.len(),
+                "collections": data.collections.len(), "saved_queries": data.queries.len(),
+                "snapshots": app.workspace().list_snapshots().len(),
+            }))
+        }
+        "get_docs" => {
+            let mut p = json!({});
+            for k in ["target", "object"] {
+                if let Some(v) = args.get(k).filter(|v| v.is_string()) {
+                    p[k] = v.clone();
+                }
+            }
+            if p.get("target").is_some() && p.get("object").is_none() { call("docs.list", p).await } else { call("docs.get", p).await }
+        }
+        "set_docs" => {
+            let mut p = json!({ "docs": a("docs").as_str().unwrap_or("") });
+            for k in ["target", "object", "columns"] {
+                if let Some(v) = args.get(k).filter(|v| !v.is_null()) {
+                    p[k] = v.clone();
+                }
+            }
+            call("docs.set", p).await
+        }
+        "save_connection" => {
+            let data = app.data();
+            let existing = a("id").as_str().and_then(|id| data.connections.iter().find(|c| c.id == id)).cloned();
+            let mut c = match &existing {
+                Some(c) => serde_json::to_value(c)?,
+                None => json!({ "id": "", "read_only": false, "ai_access": "read-only" }),
+            };
+            for k in ["name", "kind", "host", "port", "user", "database", "path"] {
+                if let Some(v) = args.get(k).filter(|v| !v.is_null()) {
+                    c[k] = v.clone();
+                }
+            }
+            let mut p = json!({ "connection": c });
+            if let Some(pw) = a("password").as_str() {
+                p["password"] = json!(pw);
+            }
+            call("connection.save", p).await
+        }
+        "test_connection" => call("connection.connect", json!({ "id": a("id") })).await,
+        "delete_connection" => {
+            let def = app.connection_def(a("id").as_str().unwrap_or_default())?;
+            app.check_access(&def, actor, true)?;
+            call("connection.delete", json!({ "id": def.id })).await
+        }
+        "update_mock_server" => {
+            let id = a("id").as_str().unwrap_or_default().trim_start_matches("mock:").to_owned();
+            let mut m = serde_json::to_value(app.mock_def(&id)?)?;
+            for k in ["name", "port", "database", "persist", "auto_start", "engine"] {
+                if let Some(v) = args.get(k).filter(|v| !v.is_null()) {
+                    m[k] = v.clone();
+                }
+            }
+            call("mock.save", json!({ "mock": m })).await
+        }
+        "delete_mock_server" => call("mock.delete", json!({ "id": a("id").as_str().unwrap_or_default().trim_start_matches("mock:") })).await,
+        "get_mock_seed" => call("mock.seed.get", json!({ "id": a("id").as_str().unwrap_or_default().trim_start_matches("mock:") })).await,
+        "set_mock_seed" => call("mock.seed.set", json!({ "id": a("id").as_str().unwrap_or_default().trim_start_matches("mock:"), "sql": a("seed") })).await,
+        "capture_mock_seed" => {
+            let id = a("id").as_str().unwrap_or_default().trim_start_matches("mock:").to_owned();
+            let captured = call("mock.seed.capture", json!({ "id": id })).await?;
+            call("mock.seed.set", json!({ "id": id, "sql": captured["sql"] })).await?;
+            Ok(json!({ "id": id, "seed_bytes": captured["sql"].as_str().map(str::len).unwrap_or(0) }))
+        }
+        "get_mock_traffic" => {
+            call("mock.traffic", json!({ "id": a("id").as_str().unwrap_or_default().trim_start_matches("mock:"), "after": 0, "limit": a("limit").as_u64().unwrap_or(100) })).await
+        }
+        "get_query_history" => call("db.history", json!({ "connection": a("connection") })).await,
+        "delete_saved_query" => call("query.delete", json!({ "collection": a("collection"), "id": a("id") })).await,
+        "save_collection" => {
+            call("collection.save", json!({ "collection": { "id": a("id").as_str().unwrap_or(""), "name": a("name"), "docs": a("docs").as_str().unwrap_or("") } })).await
+        }
+        "delete_collection" => call("collection.delete", json!({ "id": a("id") })).await,
+        "get_schema_snapshot" => call("schema.snapshot.get", json!({ "id": a("id") })).await,
+        "delete_schema_snapshot" => call("schema.snapshot.delete", json!({ "id": a("id") })).await,
+        "export_bundle" => {
+            // Agents write bundles only inside the workspace, never to arbitrary paths.
+            let name = crate::model::slugify(a("name").as_str().unwrap_or("bundle"));
+            let dir = app.workspace().root.join("exports");
+            std::fs::create_dir_all(&dir).map_err(|e| crate::error::CoreError::io(&dir, e))?;
+            let path = dir.join(format!("{name}.twinbase"));
+            let list = |k: &str| a(k).as_array().cloned().unwrap_or_default();
+            let selection = json!({
+                "mocks": list("mocks"), "collections": list("collections"), "connections": list("connections"), "snapshots": list("snapshots"),
+                "include_data": a("include_data").as_bool().unwrap_or(true),
+            });
+            let manifest = call("bundle.export", json!({ "selection": selection, "path": path.to_string_lossy() })).await?;
+            Ok(json!({ "path": path.to_string_lossy(), "manifest": manifest }))
+        }
+        "import_bundle" => {
+            if a("inspect").as_bool().unwrap_or(false) {
+                call("bundle.inspect", json!({ "path": a("path") })).await
+            } else {
+                call("bundle.import", json!({ "path": a("path") })).await
+            }
+        }
         "mongo_query" => {
             call("mongo.run", json!({ "connection": a("connection"), "database": a("database"), "command": a("statements"), "max_documents": a("max_documents").as_u64().unwrap_or(100) })).await
         }
@@ -627,49 +926,196 @@ pub async fn handle(app: &Arc<App>, sessions: &Sessions, session: Option<&str>, 
     }
 }
 
+/// Where an agent keeps its MCP servers, for one-click installs.
+struct ConfigFile {
+    path: std::path::PathBuf,
+    /// Top-level key holding the servers (`mcpServers`, `servers`, `mcp`).
+    key: &'static str,
+    entry: Value,
+}
+
+fn home() -> std::path::PathBuf {
+    dirs::home_dir().unwrap_or_else(|| std::path::PathBuf::from("."))
+}
+
+/// The per-user "application support" folder of desktop apps.
+fn app_support(app: &str) -> std::path::PathBuf {
+    if cfg!(target_os = "macos") {
+        home().join("Library/Application Support").join(app)
+    } else if cfg!(windows) {
+        dirs::config_dir().unwrap_or_else(home).join(app)
+    } else {
+        home().join(".config").join(app)
+    }
+}
+
+/// Every agent we know how to set up: copy-paste config, a one-line command where the agent has
+/// one, and the config file TwinBase can write for you.
+fn agent_setups(settings: &Settings) -> Vec<(Value, Option<ConfigFile>)> {
+    let url = format!("http://127.0.0.1:{}/mcp", settings.mcp.port);
+    let bearer = format!("Bearer {}", settings.mcp.token);
+    let headers = json!({ "Authorization": bearer });
+    let cli = cli_path();
+    let stdio = json!({ "command": cli, "args": ["mcp"] });
+    let pretty = |v: Value| serde_json::to_string_pretty(&v).unwrap_or_default();
+    let quoted_cli = if cli.contains(' ') { format!("\"{cli}\"") } else { cli.clone() };
+    let cursor_cfg = json!({ "url": url, "headers": headers });
+    let cursor_link = format!(
+        "cursor://anysphere.cursor-deeplink/mcp/install?name=twinbase&config={}",
+        base64::Engine::encode(&base64::engine::general_purpose::STANDARD, cursor_cfg.to_string())
+    );
+    let vscode_entry = json!({ "type": "http", "url": url, "headers": headers });
+    let agent = |id: &str, name: &str, detect: std::path::PathBuf, kind: &str, steps: &str, config: String, command: Option<String>| json!({ "id": id, "name": name, "kind": kind, "steps": steps, "config": config, "command": command, "detected": detect.exists() });
+    vec![
+        (
+            agent("claude-code", "Claude Code", home().join(".claude"), "command", "One command in a terminal (adds TwinBase for every project):",
+                format!("claude mcp add --transport http --scope user twinbase {url} --header \"Authorization: {bearer}\""),
+                Some(format!("claude mcp add --transport http --scope user twinbase {url} --header \"Authorization: {bearer}\""))),
+            None,
+        ),
+        (
+            agent("codex", "Codex", home().join(".codex"), "command", "One command in a terminal, or add the TOML to ~/.codex/config.toml:",
+                format!("[mcp_servers.twinbase]\ncommand = {}\nargs = [\"mcp\"]", toml::Value::String(cli.clone())),
+                Some(format!("codex mcp add twinbase -- {quoted_cli} mcp"))),
+            None,
+        ),
+        (
+            agent("gemini", "Gemini CLI", home().join(".gemini"), "json", "One command, or Install to add it to ~/.gemini/settings.json:",
+                pretty(json!({ "mcpServers": { "twinbase": { "httpUrl": url, "headers": headers } } })),
+                Some(format!("gemini mcp add --scope user --transport http --header \"Authorization: {bearer}\" twinbase {url}"))),
+            Some(ConfigFile { path: home().join(".gemini/settings.json"), key: "mcpServers", entry: json!({ "httpUrl": url, "headers": headers }) }),
+        ),
+        (
+            agent("antigravity", "Antigravity", home().join(".gemini"), "json", "Install writes the shared Antigravity config (~/.gemini/config/mcp_config.json); or Agent panel → MCP Servers → View raw config:",
+                pretty(json!({ "mcpServers": { "twinbase": stdio } })), None),
+            Some(ConfigFile { path: home().join(".gemini/config/mcp_config.json"), key: "mcpServers", entry: stdio.clone() }),
+        ),
+        (
+            agent("cursor", "Cursor", home().join(".cursor"), "json", "Open the link to install in Cursor, use Install, or add to ~/.cursor/mcp.json:",
+                pretty(json!({ "mcpServers": { "twinbase": cursor_cfg } })), None),
+            Some(ConfigFile { path: home().join(".cursor/mcp.json"), key: "mcpServers", entry: cursor_cfg.clone() }),
+        ),
+        (
+            agent("vscode", "VS Code + Copilot", app_support("Code").join("User"), "json", "One command, Install (user mcp.json), or add to .vscode/mcp.json in a project:",
+                pretty(json!({ "servers": { "twinbase": vscode_entry } })),
+                Some(format!("code --add-mcp '{}'", json!({ "name": "twinbase", "type": "http", "url": url, "headers": headers })))),
+            Some(ConfigFile { path: app_support("Code").join("User/mcp.json"), key: "servers", entry: vscode_entry.clone() }),
+        ),
+        (
+            agent("copilot-cli", "Copilot CLI", home().join(".copilot"), "json", "Install, or add to ~/.copilot/mcp-config.json:",
+                pretty(json!({ "mcpServers": { "twinbase": { "type": "http", "url": url, "headers": headers, "tools": ["*"] } } })), None),
+            Some(ConfigFile { path: home().join(".copilot/mcp-config.json"), key: "mcpServers", entry: json!({ "type": "http", "url": url, "headers": headers, "tools": ["*"] }) }),
+        ),
+        (
+            agent("claude-desktop", "Claude Desktop", app_support("Claude"), "json", "Install, or Settings → Developer → Edit Config and add:",
+                pretty(json!({ "mcpServers": { "twinbase": stdio } })), None),
+            Some(ConfigFile { path: app_support("Claude").join("claude_desktop_config.json"), key: "mcpServers", entry: stdio.clone() }),
+        ),
+        (
+            agent("windsurf", "Windsurf", home().join(".codeium/windsurf"), "json", "Install, or add to ~/.codeium/windsurf/mcp_config.json:",
+                pretty(json!({ "mcpServers": { "twinbase": { "serverUrl": url, "headers": headers } } })), None),
+            Some(ConfigFile { path: home().join(".codeium/windsurf/mcp_config.json"), key: "mcpServers", entry: json!({ "serverUrl": url, "headers": headers }) }),
+        ),
+        (
+            agent("kiro", "Kiro", home().join(".kiro"), "json", "Install, or add to ~/.kiro/settings/mcp.json:",
+                pretty(json!({ "mcpServers": { "twinbase": { "url": url, "headers": headers } } })), None),
+            Some(ConfigFile { path: home().join(".kiro/settings/mcp.json"), key: "mcpServers", entry: json!({ "url": url, "headers": headers }) }),
+        ),
+        (
+            agent("opencode", "opencode", home().join(".config/opencode"), "json", "Install, or add to ~/.config/opencode/opencode.json:",
+                pretty(json!({ "mcp": { "twinbase": { "type": "remote", "url": url, "headers": headers, "enabled": true } } })), None),
+            Some(ConfigFile { path: home().join(".config/opencode/opencode.json"), key: "mcp", entry: json!({ "type": "remote", "url": url, "headers": headers, "enabled": true }) }),
+        ),
+        (
+            agent("zed", "Zed", app_support("Zed"), "json", "Add to Zed's settings.json (Zed → Settings → Open Settings):",
+                pretty(json!({ "context_servers": { "twinbase": { "source": "custom", "command": cli, "args": ["mcp"], "env": {} } } })), None),
+            None,
+        ),
+        (
+            agent("cline", "Cline / Roo", home().join(".vscode"), "json", "MCP Servers → Configure → add to the servers file:",
+                pretty(json!({ "mcpServers": { "twinbase": { "type": "streamableHttp", "url": url, "headers": headers } } })), None),
+            None,
+        ),
+        (
+            agent("stdio", "Any agent (stdio)", home(), "json", "For agents that start MCP servers as programs. The bridge reads the token itself:",
+                pretty(json!({ "mcpServers": { "twinbase": stdio } })), None),
+            None,
+        ),
+        (
+            agent("http", "Any agent (HTTP)", home(), "text", "Streamable HTTP endpoint and header:", format!("URL: {url}\nHeader: Authorization: {bearer}"), None),
+            None,
+        ),
+    ]
+    .into_iter()
+    .map(|(mut info, file)| {
+        if let Some(f) = &file {
+            info["install"] = json!({ "path": f.path.to_string_lossy(), "installed": installed(f) });
+        }
+        if info["id"] == "cursor" {
+            info["link"] = json!(cursor_link);
+        }
+        (info, file)
+    })
+    .collect()
+}
+
+fn read_json_config(path: &std::path::Path) -> crate::error::Result<Value> {
+    match std::fs::read_to_string(path) {
+        Ok(text) if text.trim().is_empty() => Ok(json!({})),
+        Ok(text) => serde_json::from_str(&text).map_err(|_| {
+            crate::error::CoreError::invalid(format!(
+                "{} is not plain JSON (comments?), so TwinBase won't rewrite it. Add the snippet by hand.",
+                path.display()
+            ))
+        }),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(json!({})),
+        Err(e) => Err(crate::error::CoreError::io(path, e)),
+    }
+}
+
+fn installed(f: &ConfigFile) -> bool {
+    read_json_config(&f.path).ok().and_then(|v| v.get(f.key).and_then(|s| s.get("twinbase")).cloned()).is_some_and(|e| e == f.entry)
+}
+
+/// Add (or update) the `twinbase` server in an agent's config file. The first time a file is
+/// changed, the original is kept next to it as `<name>.twinbase-backup`.
+pub fn install(settings: &Settings, agent: &str) -> crate::error::Result<Value> {
+    let (_, file) = agent_setups(settings)
+        .into_iter()
+        .find(|(info, _)| info["id"] == agent)
+        .ok_or_else(|| crate::error::CoreError::not_found(format!("unknown agent '{agent}'")))?;
+    let f = file.ok_or_else(|| crate::error::CoreError::invalid("this agent is set up with a command or by hand"))?;
+    write_entry(&f)
+}
+
+fn write_entry(f: &ConfigFile) -> crate::error::Result<Value> {
+    let mut doc = read_json_config(&f.path)?;
+    if !doc.is_object() {
+        return Err(crate::error::CoreError::invalid(format!("{} does not hold a JSON object", f.path.display())));
+    }
+    let servers = doc.as_object_mut().unwrap().entry(f.key).or_insert_with(|| json!({}));
+    if !servers.is_object() {
+        return Err(crate::error::CoreError::invalid(format!("\"{}\" in {} is not an object", f.key, f.path.display())));
+    }
+    servers.as_object_mut().unwrap().insert("twinbase".into(), f.entry.clone());
+    if let Some(dir) = f.path.parent() {
+        std::fs::create_dir_all(dir).map_err(|e| crate::error::CoreError::io(dir, e))?;
+    }
+    let backup = f.path.with_file_name(format!("{}.twinbase-backup", f.path.file_name().unwrap_or_default().to_string_lossy()));
+    if f.path.exists() && !backup.exists() {
+        std::fs::copy(&f.path, &backup).map_err(|e| crate::error::CoreError::io(&backup, e))?;
+    }
+    let tmp = f.path.with_extension("twinbase-tmp");
+    std::fs::write(&tmp, serde_json::to_string_pretty(&doc)? + "\n").map_err(|e| crate::error::CoreError::io(&tmp, e))?;
+    std::fs::rename(&tmp, &f.path).map_err(|e| crate::error::CoreError::io(&f.path, e))?;
+    Ok(json!({ "path": f.path.to_string_lossy(), "backup": backup.exists().then(|| backup.to_string_lossy().into_owned()) }))
+}
+
 /// Copy-paste setup for popular coding agents.
 pub fn install_instructions(settings: &Settings) -> Value {
     let url = format!("http://127.0.0.1:{}/mcp", settings.mcp.port);
-    let token = &settings.mcp.token;
-    let bearer = format!("Bearer {token}");
-    let cli = cli_path();
-    let stdio = json!({ "command": cli, "args": ["mcp"] });
-    let agents = vec![
-        json!({ "id": "claude-code", "name": "Claude Code", "kind": "command",
-            "steps": "Run this in a terminal:",
-            "config": format!("claude mcp add --transport http twinbase {url} --header \"Authorization: {bearer}\"") }),
-        json!({ "id": "claude-desktop", "name": "Claude Desktop", "kind": "json",
-            "steps": "Settings → Developer → Edit Config, add to claude_desktop_config.json:",
-            "config": serde_json::to_string_pretty(&json!({ "mcpServers": { "twinbase": stdio } })).unwrap() }),
-        json!({ "id": "codex", "name": "OpenAI Codex CLI", "kind": "toml",
-            "steps": "Add to ~/.codex/config.toml:",
-            "config": format!("[mcp_servers.twinbase]\ncommand = \"{cli}\"\nargs = [\"mcp\"]") }),
-        json!({ "id": "gemini", "name": "Gemini CLI", "kind": "json",
-            "steps": "Add to ~/.gemini/settings.json:",
-            "config": serde_json::to_string_pretty(&json!({ "mcpServers": { "twinbase": { "httpUrl": url, "headers": { "Authorization": bearer } } } })).unwrap() }),
-        json!({ "id": "antigravity", "name": "Google Antigravity", "kind": "json",
-            "steps": "Agent panel → … → MCP Servers → Manage MCP Servers → View raw config, add:",
-            "config": serde_json::to_string_pretty(&json!({ "mcpServers": { "twinbase": stdio } })).unwrap() }),
-        json!({ "id": "cursor", "name": "Cursor", "kind": "json",
-            "steps": "Add to ~/.cursor/mcp.json (or .cursor/mcp.json in a project):",
-            "config": serde_json::to_string_pretty(&json!({ "mcpServers": { "twinbase": { "url": url, "headers": { "Authorization": bearer } } } })).unwrap() }),
-        json!({ "id": "vscode", "name": "VS Code (GitHub Copilot)", "kind": "json",
-            "steps": "Add to .vscode/mcp.json in your project:",
-            "config": serde_json::to_string_pretty(&json!({ "servers": { "twinbase": { "type": "http", "url": url, "headers": { "Authorization": bearer } } } })).unwrap() }),
-        json!({ "id": "windsurf", "name": "Windsurf", "kind": "json",
-            "steps": "Add to ~/.codeium/windsurf/mcp_config.json:",
-            "config": serde_json::to_string_pretty(&json!({ "mcpServers": { "twinbase": { "serverUrl": url, "headers": { "Authorization": bearer } } } })).unwrap() }),
-        json!({ "id": "zed", "name": "Zed", "kind": "json",
-            "steps": "Add to Zed settings.json:",
-            "config": serde_json::to_string_pretty(&json!({ "context_servers": { "twinbase": { "source": "custom", "command": cli, "args": ["mcp"], "env": {} } } })).unwrap() }),
-        json!({ "id": "stdio", "name": "Any agent (stdio)", "kind": "json",
-            "steps": "For agents that start MCP servers as programs. The bridge reads the token automatically:",
-            "config": serde_json::to_string_pretty(&json!({ "mcpServers": { "twinbase": stdio } })).unwrap() }),
-        json!({ "id": "http", "name": "Any agent (HTTP)", "kind": "text",
-            "steps": "Streamable HTTP endpoint and header:",
-            "config": format!("URL: {url}\nHeader: Authorization: {bearer}") }),
-    ];
-    json!({ "url": url, "token": token, "cli": cli, "enabled": settings.mcp.enabled, "agents": agents,
+    let agents: Vec<Value> = agent_setups(settings).into_iter().map(|(info, _)| info).collect();
+    json!({ "url": url, "token": settings.mcp.token, "cli": cli_path(), "enabled": settings.mcp.enabled, "agents": agents,
         "note": "TwinBase must be open (or `twinbase serve` running) for agents to connect." })
 }
 
@@ -814,5 +1260,33 @@ mod tests {
         assert_eq!(s.names.lock().len(), MAX_SESSIONS);
         let any = s.names.lock().keys().next().cloned().unwrap();
         assert!(s.end(&any) && !s.end(&any));
+    }
+}
+
+#[cfg(test)]
+mod install_tests {
+    use super::*;
+
+    #[test]
+    fn merges_into_existing_config_and_keeps_a_backup() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("cfg/mcp.json");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, r#"{"mcpServers":{"other":{"command":"x"}},"theme":"dark"}"#).unwrap();
+        let f = ConfigFile { path: path.clone(), key: "mcpServers", entry: json!({ "url": "http://127.0.0.1:1/mcp" }) };
+        assert!(!installed(&f));
+        let r = write_entry(&f).unwrap();
+        assert!(r["backup"].is_string());
+        let v: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(v["mcpServers"]["other"]["command"], "x", "other servers are kept");
+        assert_eq!(v["theme"], "dark");
+        assert!(installed(&f));
+        // Files with comments are refused rather than rewritten.
+        std::fs::write(&path, "{ // hi\n }").unwrap();
+        assert!(write_entry(&f).is_err());
+        // A missing file is created.
+        let fresh = ConfigFile { path: dir.path().join("new/dir/settings.json"), key: "servers", entry: json!(1) };
+        write_entry(&fresh).unwrap();
+        assert!(installed(&fresh));
     }
 }

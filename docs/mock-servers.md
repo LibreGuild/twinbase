@@ -89,7 +89,7 @@ Verified in automated tests with real clients:
   and gRPC tests with the generated client.
 
 SQL coverage is described in [engine.md](engine.md). Things a TwinLite mock does **not** do: TLS on
-the mock port (SQL Server mocks excepted: TDS clients expect it), replication, stored procedures/triggers/PL code, extensions, and server-side cursors
+the mock port (SQL Server mocks excepted: TDS clients expect it), replication, stored procedures/triggers/PL code, extensions other than pgvector (built in, see below), and server-side cursors
 beyond what drivers use for ordinary queries (a PostgreSQL mock on the real engine does all of these
 except TLS and replication — see below). Error codes follow the real servers (SQLSTATE, MySQL error
 numbers) so application error handling can be tested.
@@ -160,10 +160,33 @@ version wins. TwinBase does not ship PostgreSQL.
 - Bundles never carry the PostgreSQL cluster (its configuration can run programs), and imported
   mocks start on TwinLite until you switch them back.
 
+## Vectors (pgvector)
+
+PostgreSQL mocks emulate [pgvector](https://github.com/pgvector/pgvector) out of the box, so
+embedding code (LangChain, LlamaIndex, psycopg/asyncpg/node-postgres with the pgvector adapters)
+runs unchanged:
+
+- `CREATE EXTENSION vector` succeeds; `pg_extension`, `pg_type` and `format_type()` report the types.
+- Types `vector(n)`, `halfvec(n)` (values rounded to half precision, as pgvector stores them) and
+  `sparsevec(n)` (`{1:0.5,7:2}/10000`), with dimension checks and pgvector's error messages.
+- Operators `<->` (L2), `<#>` (negative inner product), `<=>` (cosine), `<+>` (L1), `<~>` / `<%>`
+  (Hamming / Jaccard on bit strings); element-wise `+`, `-`, `*` and `||`.
+- Functions `l2_distance`, `inner_product`, `cosine_distance`, `l1_distance`, `vector_dims`,
+  `vector_norm`, `l2_norm`, `l2_normalize`, `subvector`, `binary_quantize`, `hamming_distance`,
+  `jaccard_distance`, and `avg`/`sum` over vectors; casts between the three types and to/from text.
+- Text and binary wire formats (for drivers that register binary codecs).
+- `CREATE INDEX … USING hnsw (embedding vector_cosine_ops)` and `ivfflat` are accepted; search is
+  exact, so results match a perfect index (real HNSW/IVFFlat may return slightly different
+  neighbours).
+
+MySQL mocks accept MySQL 9's `STRING_TO_VECTOR`, `VECTOR_TO_STRING`, `VECTOR_DIM` and `DISTANCE`, and
+SQL Server mocks `VECTOR_DISTANCE('cosine', a, b)`. Against real servers, the client shows extension
+types with their full declaration (`halfvec(1536)`, `geometry(Point,4326)`).
+
 ## Redis notes
 
 Strings, hashes, lists, sets, sorted sets, key expiry, `SCAN`/`KEYS` with patterns and types,
-pub/sub and transactions are supported. Persistent Redis mocks write a JSON snapshot on change and on
+pub/sub, transactions and the 16 numbered databases (`SELECT`, `INFO keyspace`) are supported. Persistent Redis mocks write a JSON snapshot on change and on
 stop; exports use the last snapshot.
 
 ## MongoDB notes

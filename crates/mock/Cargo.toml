@@ -41,6 +41,8 @@ hyper = { version = "1", features = ["server", "http1"] }
 hyper-util = { version = "0.1", features = ["tokio"] }
 http-body-util = "0.1"
 pgwire = { version = "0.42", default-features = false, features = ["server-api"] }
+# Same version pgwire uses; for extension types (pgvector) in row descriptions.
+postgres-types = "0.2.14"
 opensrv-mysql = { version = "0.7", default-features = false }
 sha1 = "0.10"
 md-5 = "0.10"

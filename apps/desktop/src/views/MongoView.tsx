@@ -11,7 +11,7 @@ import { ConfirmDialog, CopyButton, Dialog, Empty, ErrorBox, Field, Resizer, res
 import { call, errorMessage } from "../lib/api";
 import { duration, kindLabel, plural, relativeTime } from "../lib/format";
 import { PIPELINE_STAGES, shellText, shortText, type Json } from "../lib/mongo";
-import { renderMarkdown } from "../lib/markdown";
+import { Markdown } from "../components/Markdown";
 import { attempt, targetInfo, useStore, useTargets, type Tab } from "../lib/store";
 import type { HistoryEntry, MongoField, MongoOutput, MongoPage } from "../lib/types";
 
@@ -609,7 +609,7 @@ export function MongoQueryView({ tab }: { tab: QueryTab }) {
         {target?.readOnly && <span className="badge warning">read-only connection</span>}
         {target?.isMock && <span className="badge accent">mock</span>}
       </div>
-      {showDocs && saved?.docs && <div className="markdown note-box" style={{ margin: "8px 10px 0", maxHeight: 180, overflow: "auto" }} dangerouslySetInnerHTML={{ __html: renderMarkdown(saved.docs) }} />}
+      {showDocs && saved?.docs && <Markdown source={saved.docs} className="note-box" style={{ margin: "8px 10px 0", maxHeight: 260, overflow: "auto" }} />}
       <div className="editor-host" ref={editorBox} style={{ height: "var(--editor-h, 40%)", flex: "none", ["--editor-h" as string]: restoredSize("--editor-h") }}>
         <SqlEditor
           ref={editor}

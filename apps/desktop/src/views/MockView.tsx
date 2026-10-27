@@ -1,6 +1,7 @@
 // Mock server tab: status and controls, connection snippets, live traffic and the seed script.
 
-import { Activity as ActivityIcon, Braces, Camera, Code2, FileText, KeyRound, Network, Pause, Pencil, Play, RotateCcw, Rows3, Save, Square, Terminal, Trash2 } from "lucide-react";
+import { TargetDocs } from "../components/Docs";
+import { Activity as ActivityIcon, BookOpen, Braces, Camera, Code2, FileText, KeyRound, Network, Pause, Pencil, Play, RotateCcw, Rows3, Save, Square, Terminal, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { SqlEditor } from "../components/SqlEditor";
 import { MockFaults } from "./MockFaults";
@@ -85,6 +86,7 @@ export function MockView({ tab }: { tab: MockTab }) {
           ["traffic", "Traffic"],
           ["faults", mock.faults?.enabled ? "Faults ●" : "Faults"],
           ["seed", mock.kind === "redis" ? "Seed commands" : mock.kind === "mongodb" ? "Seed documents" : mock.kind === "dynamodb" ? "Seed tables" : mock.kind === "firestore" ? "Seed documents" : "Seed SQL"],
+          ["docs", "Docs"],
         ].map(([id, label]) => (
           <button key={id} className={section === id ? "on" : ""} role="tab" aria-selected={section === id} onClick={() => updateTab(tab.id, { section: id })}>
             {label}
@@ -164,6 +166,20 @@ export function MockView({ tab }: { tab: MockTab }) {
       {section === "traffic" && <Traffic id={mock.id} running={mock.running} />}
       {section === "seed" && <Seed id={mock.id} kind={mock.kind} />}
       {section === "faults" && <MockFaults mock={mock} />}
+      {section === "docs" && (
+        <div className="pane">
+          <div className="page">
+            <h1>About {mock.name}</h1>
+            <p>What this mock stands in for, how its seed is organised and how apps should use it. Stored in the mock's definition, so it travels with bundles.</p>
+            <TargetDocs target={mock.id} />
+            <div className="row" style={{ marginTop: 16 }}>
+              <button className="btn sm" onClick={() => openTab({ kind: "docs", target: mock.connection_id })}>
+                <BookOpen size={13} /> Documented tables and collections
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {confirm === "reset" && (
         <ConfirmDialog
           title="Reset mock data?"

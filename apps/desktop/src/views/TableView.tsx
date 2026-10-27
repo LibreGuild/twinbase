@@ -1,6 +1,7 @@
 // Table tab: paged rows with staged edits (review → preview → apply), filters, value inspector,
 // structure and DDL.
 
+import { ObjectDocsEditor } from "../components/Docs";
 import {
   ChevronLeft, ChevronRight, ClipboardCopy, Code2, Copy, Eye, FilterIcon, KeyRound, Link2, Network, PanelRight, Plus, RefreshCw,
   Rows3, Save, Sparkles, Trash2, Undo2, Wand2, X,
@@ -53,7 +54,7 @@ export function TableView({ tab }: { tab: TableTab }) {
   const openDialog = useStore((s) => s.openDialog);
   const toast = useStore((s) => s.toast);
 
-  const [section, setSection] = useState<"data" | "structure" | "ddl">("data");
+  const [section, setSection] = useState<"data" | "structure" | "ddl" | "docs">("data");
   const [query, setQuery] = useState<RowQuery>({ offset: 0, limit: pageSize, sort: [], filters: tab.filters ?? [] });
   const [page, setPage] = useState<RowsPage | null>(null);
   const [loading, setLoading] = useState(false);
@@ -323,9 +324,9 @@ export function TableView({ tab }: { tab: TableTab }) {
         </div>
         <div className="sep" />
         <div className="seg" role="tablist">
-          {(["data", "structure", "ddl"] as const).map((s) => (
+          {(["data", "structure", "ddl", "docs"] as const).map((s) => (
             <button key={s} className={section === s ? "on" : ""} onClick={() => setSection(s)} role="tab" aria-selected={section === s}>
-              {s === "data" ? "Data" : s === "structure" ? "Structure" : "DDL"}
+              {s === "data" ? "Data" : s === "structure" ? "Structure" : s === "ddl" ? "DDL" : "Docs"}
             </button>
           ))}
         </div>
@@ -453,6 +454,13 @@ export function TableView({ tab }: { tab: TableTab }) {
 
       {section === "structure" && <Structure info={info} loading={describe.loading} error={describe.error} connection={connection} schema={schema} />}
       {section === "ddl" && <TableDdl connection={connection} schema={schema} table={table} />}
+      {section === "docs" && (
+        <div className="pane">
+          <div className="page">
+            <ObjectDocsEditor target={connection} object={`${schema}.${table}`} columns={info?.columns.map((c) => ({ name: c.name, type: c.data_type }))} />
+          </div>
+        </div>
+      )}
 
       {review && <ReviewDialog connection={connection} schema={schema} table={table} changes={changeSet()} onClose={() => setReview(false)} onApply={apply} />}
       {menu.node}

@@ -9,7 +9,7 @@ import { SqlEditor, type SqlEditorHandle } from "../components/SqlEditor";
 import { Dialog, Empty, Resizer, restoredSize, Spinner, useContextMenu } from "../components/ui";
 import { call, CoreCallError, errorMessage } from "../lib/api";
 import { cellText, duration, isReadOnlySql, kindLabel, plural, relativeTime, riskyStatement } from "../lib/format";
-import { renderMarkdown } from "../lib/markdown";
+import { Markdown } from "../components/Markdown";
 import { completionSchema, useGraph } from "../lib/schema";
 import { attempt, defaultSchema, targetInfo, useStore, useTargets, type Tab } from "../lib/store";
 import type { HistoryEntry, PreviewResult, QueryPlan, QueryResult } from "../lib/types";
@@ -249,7 +249,7 @@ export function QueryView({ tab }: { tab: QueryTab }) {
         {target?.readOnly && <span className="badge warning">read-only connection</span>}
         {target?.isMock && <span className="badge accent">mock</span>}
       </div>
-      {showDocs && saved?.docs && <div className="markdown note-box" style={{ margin: "8px 10px 0", maxHeight: 180, overflow: "auto" }} dangerouslySetInnerHTML={{ __html: renderMarkdown(saved.docs) }} />}
+      {showDocs && saved?.docs && <Markdown source={saved.docs} className="note-box" style={{ margin: "8px 10px 0", maxHeight: 260, overflow: "auto" }} />}
       <div className="editor-host" ref={editorBox} style={{ height: "var(--editor-h, 40%)", flex: "none", ["--editor-h" as string]: restoredSize("--editor-h") }}>
         <SqlEditor
           ref={editor}

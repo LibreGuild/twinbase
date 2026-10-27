@@ -1,7 +1,7 @@
 // Explorer: mock servers, saved connections (schemas → tables) and query collections.
 
 import { consoleTemplate } from "../views/SearchView";
-import { Braces, ChevronDown, ChevronRight, Code2, Copy, Eye, FileText, FolderOpen, FolderTree, GitCompare, KeyRound, Layers, Network, Pencil, Play, Plug, Plus, RefreshCw, RotateCcw, Rows3, Search, Server, Sparkles, Square, Table2, Terminal, Trash2, Unplug, Upload, Wand2 } from "lucide-react";
+import { BookOpen, Braces, ChevronDown, ChevronRight, Code2, Copy, Eye, FileText, FolderOpen, FolderTree, GitCompare, KeyRound, Layers, Network, Pencil, Play, Plug, Plus, RefreshCw, RotateCcw, Rows3, Search, Server, Sparkles, Square, Table2, Terminal, Trash2, Unplug, Upload, Wand2 } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { call } from "../lib/api";
 import { TABLE_TEMPLATE } from "../lib/dynamo";
@@ -258,9 +258,13 @@ function MockNode({ mock, q, open, toggle, menu }: { mock: MockStatus; q: string
         ? [{ label: "Open console", icon: <Terminal size={14} />, disabled: !mock.running, onClick: () => openTab({ kind: "query", connection: conn, sql: "ListTables {}", title: `${mock.name} console` }) }]
         : mock.kind === "firestore"
         ? [{ label: "Open console", icon: <FileText size={14} />, disabled: !mock.running, onClick: () => openTab({ kind: "query", connection: conn, sql: "collections", title: `${mock.name} console` }) }]
-        : [{ label: "Browse keys", icon: <KeyRound size={14} />, disabled: !mock.running, onClick: () => openTab({ kind: "redis", connection: conn }) }]),
+        : [
+            { label: "Browse keys", icon: <KeyRound size={14} />, disabled: !mock.running, onClick: () => openTab({ kind: "redis", connection: conn }) },
+            { label: "Open console", icon: <Terminal size={14} />, disabled: !mock.running, onClick: () => openTab({ kind: "query", connection: conn, sql: "", title: `${mock.name} console` }) },
+          ]),
     "sep",
     { label: "Settings…", icon: <Pencil size={14} />, onClick: () => openDialog({ kind: "mock", mock }) },
+    { label: "Docs", icon: <BookOpen size={14} />, onClick: () => openTab({ kind: "docs", target: conn }) },
     {
       label: "Reset to seed",
       icon: <RotateCcw size={14} />,
@@ -345,8 +349,8 @@ function ConnectionNode({ conn, q, open, toggle, menu }: { conn: ConnectionDef; 
         title={`${kindLabel(conn.kind)} · ${conn.kind === "sqlite" ? conn.path : `${conn.host}:${conn.port}${conn.database ? `/${conn.database}` : ""}`}${conn.read_only ? "\nRead-only" : ""}`}
         expanded={open.has(key)}
         onToggle={expand}
-        onClick={conn.kind === "redis" ? () => openTab({ kind: "redis", connection: conn.id }) : expand}
-        onDoubleClick={() => conn.kind !== "redis" && openTab({ kind: "query", connection: conn.id, sql: consoleSql, title: isSql ? conn.name : `${conn.name} console` })}
+        onClick={expand}
+        onDoubleClick={() => openTab(conn.kind === "redis" ? { kind: "redis", connection: conn.id } : { kind: "query", connection: conn.id, sql: consoleSql, title: isSql ? conn.name : `${conn.name} console` })}
         onContextMenu={(e) =>
           menu(e, [
             ...(isSql
@@ -358,9 +362,13 @@ function ConnectionNode({ conn, q, open, toggle, menu }: { conn: ConnectionDef; 
                 ? [{ label: "Open console", icon: <Braces size={14} />, onClick: () => openTab({ kind: "query", connection: conn.id, sql: "show collections", title: `${conn.name} console` }) }]
                 : isDynamo || isFirestore || isSearch
                 ? [{ label: "Open console", icon: <Terminal size={14} />, onClick: () => openTab({ kind: "query", connection: conn.id, sql: consoleSql, title: `${conn.name} console` }) }]
-                : [{ label: "Browse keys", icon: <KeyRound size={14} />, onClick: () => openTab({ kind: "redis", connection: conn.id }) }]),
+                : [
+                    { label: "Browse keys", icon: <KeyRound size={14} />, onClick: () => openTab({ kind: "redis", connection: conn.id }) },
+                    { label: "Open console", icon: <Terminal size={14} />, onClick: () => openTab({ kind: "query", connection: conn.id, sql: "", title: `${conn.name} console` }) },
+                  ]),
             "sep",
             { label: "Edit…", icon: <Pencil size={14} />, onClick: () => openDialog({ kind: "connection", connection: conn }) },
+            { label: "Docs", icon: <BookOpen size={14} />, onClick: () => openTab({ kind: "docs", target: conn.id }) },
             ...(connected ? [{ label: "Disconnect", icon: <Unplug size={14} />, onClick: () => (toggle(key, false), call("connection.disconnect", { id: conn.id })) }] : []),
             {
               label: "Delete",
@@ -403,6 +411,7 @@ function SearchTree({ connection, depth, q, menu }: { connection: string; depth:
               { label: "Open documents", icon: <Rows3 size={14} />, onClick: () => openTab({ kind: "search", connection, index: i.name }) },
               { label: "Search in console", icon: <Terminal size={14} />, onClick: () => openTab({ kind: "query", connection, sql: consoleTemplate(i.name), title: `${i.name} console` }) },
               { label: "Copy name", icon: <Copy size={14} />, onClick: () => navigator.clipboard.writeText(i.name) },
+              { label: "Docs", icon: <BookOpen size={14} />, onClick: () => openTab({ kind: "docs", target: connection, object: i.name }) },
             ])
           }
         />
@@ -441,6 +450,7 @@ function FirestoreTree({ connection, depth, q, menu }: { connection: string; dep
               { label: "Query in console", icon: <Terminal size={14} />, onClick: () => openTab({ kind: "query", connection, sql: `query ${c} limit 20`, title: `${c} console` }) },
               { label: "Collection group query", icon: <Terminal size={14} />, onClick: () => openTab({ kind: "query", connection, sql: `query group ${c} limit 20`, title: `${c} group` }) },
               { label: "Copy name", icon: <Copy size={14} />, onClick: () => navigator.clipboard.writeText(c) },
+              { label: "Docs", icon: <BookOpen size={14} />, onClick: () => openTab({ kind: "docs", target: connection, object: c }) },
             ])
           }
         />
@@ -480,6 +490,7 @@ function DynamoTree({ connection, depth, q, menu }: { connection: string; depth:
               { label: "Open items", icon: <Rows3 size={14} />, onClick: () => openTab({ kind: "dynamo", connection, table: t }) },
               { label: "Scan in console", icon: <Terminal size={14} />, onClick: () => openTab({ kind: "query", connection, sql: `Scan {\n  "TableName": ${JSON.stringify(t)},\n  "Limit": 25\n}`, title: `${t} console` }) },
               { label: "Copy name", icon: <Copy size={14} />, onClick: () => navigator.clipboard.writeText(t) },
+              { label: "Docs", icon: <BookOpen size={14} />, onClick: () => openTab({ kind: "docs", target: connection, object: t }) },
               ...(readOnly
                 ? []
                 : [
@@ -572,6 +583,7 @@ function MongoCollections({ connection, database, depth, q, menu }: { connection
               { label: "Open documents", icon: <Rows3 size={14} />, onClick: () => openTab({ kind: "mongo", connection, database, collection: c.name }) },
               { label: "Query in console", icon: <Braces size={14} />, onClick: () => openTab({ kind: "query", connection, sql: `use ${database}\ndb.getCollection(${JSON.stringify(c.name)}).find({}).limit(20)`, title: `${c.name} console` }) },
               { label: "Copy name", icon: <Copy size={14} />, onClick: () => navigator.clipboard.writeText(c.name) },
+              { label: "Docs", icon: <BookOpen size={14} />, onClick: () => openTab({ kind: "docs", target: connection, object: `${database}.${c.name}` }) },
               ...(readOnly || c.type !== "collection"
                 ? []
                 : [
@@ -599,9 +611,33 @@ function MongoCollections({ connection, database, depth, q, menu }: { connection
   );
 }
 
+/** A Redis connection's numbered databases (the default one and every one holding keys). */
 function RedisLeaf({ connection, depth }: { connection: string; depth: number }) {
   const openTab = useStore((s) => s.openTab);
-  return <Row depth={depth} icon={<KeyRound size={13} className="kind-redis" />} label="Keys" onClick={() => openTab({ kind: "redis", connection })} />;
+  const version = useStore((s) => s.dataVersion[connection] ?? 0);
+  const activeTab = useStore((s) => s.tabs.find((t) => t.id === s.activeTab));
+  const r = useAsync(() => call<{ default: number; databases: { db: number; keys: number }[] }>("redis.databases", { connection }), [connection, version]);
+  if (r.error) return <div className="tree-empty" style={{ color: "var(--danger)" }}>{String((r.error as Error).message ?? r.error)}</div>;
+  if (!r.data) return <div className="tree-empty"><Spinner size={12} /></div>;
+  const dbs = [...r.data.databases];
+  if (!dbs.some((d) => d.db === r.data!.default)) dbs.unshift({ db: r.data.default, keys: 0 });
+  dbs.sort((a, b) => a.db - b.db);
+  return (
+    <>
+      {dbs.map((d) => (
+        <Row
+          key={d.db}
+          depth={depth}
+          icon={<KeyRound size={13} className="kind-redis" />}
+          label={`db${d.db}`}
+          meta={<span className="faint xs">{d.keys.toLocaleString()}</span>}
+          active={activeTab?.kind === "redis" && activeTab.connection === connection && (activeTab.db ?? r.data!.default) === d.db}
+          onClick={() => openTab({ kind: "redis", connection, db: d.db === r.data!.default ? undefined : d.db })}
+        />
+      ))}
+      <Row depth={depth} icon={<Terminal size={13} className="kind-redis" />} label="Console" onClick={() => openTab({ kind: "query", connection, sql: "", title: `${targetInfo(connection)?.name ?? "Redis"} console` })} />
+    </>
+  );
 }
 
 function SchemaTree({ connection, kind, depth, q, open, toggle, menu }: { connection: string; kind: DbKind; depth: number; q: string; open: Set<string>; toggle: (k: string, v?: boolean) => void; menu: MenuOpener }) {
@@ -688,6 +724,7 @@ function TableList({ connection, kind, schema, depth, q, menu }: { connection: s
             menu(e, [
               { label: "Open data", icon: <Rows3 size={14} />, onClick: () => openTab({ kind: "table", connection, schema, table: t.name }) },
               { label: "Query", icon: <Code2 size={14} />, onClick: () => openTab({ kind: "query", connection, sql: `SELECT *\nFROM ${qualifiedName(kind, schema, t.name)}\nLIMIT 100;`, title: `${t.name} query` }) },
+              { label: "Docs", icon: <BookOpen size={14} />, onClick: () => openTab({ kind: "docs", target: connection, object: `${schema}.${t.name}` }) },
               ...(readOnly || t.kind === "view"
                 ? []
                 : [

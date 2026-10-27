@@ -1,9 +1,9 @@
 // Settings: appearance, data limits, workspace and AI agent (MCP) setup.
 
-import { Bot, Database, FolderOpen, Info, Monitor, Moon, Palette, RefreshCw, Settings as SettingsIcon, Sun, X } from "lucide-react";
+import { Bot, Database, Download, ExternalLink, FolderOpen, Info, Monitor, Moon, Palette, RefreshCw, Settings as SettingsIcon, Sun, X } from "lucide-react";
 import { useState } from "react";
 import { CodeBlock, ConfirmDialog, CopyButton, ErrorBox, Field, Spinner, useAsync, useEscape } from "../components/ui";
-import { call, runtime } from "../lib/api";
+import { call, openExternal, runtime } from "../lib/api";
 import { attempt, useStore } from "../lib/store";
 import type { McpConfig } from "../lib/types";
 
@@ -150,7 +150,17 @@ function AgentsSettings() {
   const [active, setActive] = useState("claude-code");
   const [regen, setRegen] = useState(false);
   const [port, setPort] = useState(String(settings.mcp.port));
-  const agent = config.data?.agents.find((a) => a.id === active) ?? config.data?.agents[0];
+  const agent = config.data?.agents.find((a) => a.id === active) ?? config.data?.agents.find((a) => a.detected) ?? config.data?.agents[0];
+  const [installing, setInstalling] = useState(false);
+  const install = async (id: string) => {
+    setInstalling(true);
+    const r = await attempt("Could not install", () => call<{ path: string; backup?: string }>("mcp.install", { agent: id }));
+    setInstalling(false);
+    if (r) {
+      useStore.getState().toast("success", "Installed — restart the agent to load TwinBase", r.backup ? `${r.path}\nOriginal kept as ${r.backup}` : r.path);
+      config.reload();
+    }
+  };
   return (
     <>
       <h1 className="row">
@@ -200,18 +210,53 @@ function AgentsSettings() {
       {config.loading && !config.data && <Spinner />}
       {config.data && (
         <>
-          <div className="snippet-tabs">
+          <div className="agent-legend faint xs">
+            <span className="agent-state" /> found on this computer <span className="agent-state installed" /> TwinBase installed
+          </div>
+          <div className="agent-grid">
             {config.data.agents.map((a) => (
-              <button key={a.id} className={agent?.id === a.id ? "on" : ""} onClick={() => setActive(a.id)}>
-                {a.name}
+              <button key={a.id} className={`agent-pick${agent?.id === a.id ? " on" : ""}`} onClick={() => setActive(a.id)}>
+                <span className="ellipsis">{a.name}</span>
+                {a.install?.installed ? (
+                  <span className="agent-state installed" title="TwinBase is installed in this agent" />
+                ) : a.detected && a.id !== "stdio" && a.id !== "http" ? (
+                  <span className="agent-state" title="Found on this computer" />
+                ) : null}
               </button>
             ))}
           </div>
           {agent && (
-            <>
-              <p style={{ marginTop: 4 }}>{agent.steps}</p>
-              <CodeBlock code={agent.config} />
-            </>
+            <div className="agent-setup">
+              <p style={{ marginTop: 0 }}>{agent.steps}</p>
+              {(agent.command || agent.install || agent.link) && (
+                <div className="agent-quick">
+                  {agent.command && (
+                    <div className="agent-cmd">
+                      <span className="faint xs">Terminal</span>
+                      <code className="selectable">{agent.command}</code>
+                      <CopyButton text={agent.command} small />
+                    </div>
+                  )}
+                  <div className="row wrap">
+                    {agent.install && (
+                      <button className="btn primary sm" disabled={installing} onClick={() => install(agent.id)} title={agent.install.path}>
+                        <Download size={13} /> {agent.install.installed ? "Reinstall" : "Install"} in {agent.name}
+                      </button>
+                    )}
+                    {agent.link && (
+                      <a className="btn sm" href={agent.link} onClick={(e) => (e.preventDefault(), void openExternal(agent.link!))}>
+                        <ExternalLink size={13} /> Open in Cursor
+                      </a>
+                    )}
+                    {agent.install && <span className="faint xs mono ellipsis" title={agent.install.path}>{agent.install.path}</span>}
+                  </div>
+                </div>
+              )}
+              <details className="agent-manual" open={!agent.command && !agent.install}>
+                <summary>Configure by hand</summary>
+                <CodeBlock code={agent.config} />
+              </details>
+            </div>
           )}
           <div className="note-box" style={{ marginTop: 14 }}>
             {config.data.note} The stdio bridge (<code>{config.data.cli} mcp</code>) reads the token from this computer automatically, so its configuration contains no secret.

@@ -8,8 +8,19 @@ use crate::{ClientError, ConnectionConfig, Result, TlsMode};
 pub struct RedisClient {
     conn: redis::aio::MultiplexedConnection,
     pub db: i64,
+    /// Opens connections to the other numbered databases (one each, made on first use).
+    client: redis::Client,
+    others: std::sync::Arc<tokio::sync::Mutex<std::collections::HashMap<i64, redis::aio::MultiplexedConnection>>>,
     /// Keeps an SSH tunnel open for as long as the client lives.
     tunnel: Option<std::sync::Arc<crate::ssh::Tunnel>>,
+}
+
+/// One numbered database (`db0`…) from `INFO keyspace`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct RedisDatabase {
+    pub db: i64,
+    pub keys: i64,
+    pub expires: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -24,12 +35,45 @@ pub struct RedisKey {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "type", rename_all = "lowercase")]
 pub enum RedisValue {
-    String { value: String },
-    List { items: Vec<String> },
-    Hash { fields: Vec<(String, String)> },
-    Set { members: Vec<String> },
-    Zset { members: Vec<(String, f64)> },
+    String {
+        value: String,
+    },
+    List {
+        items: Vec<String>,
+    },
+    Hash {
+        fields: Vec<(String, String)>,
+    },
+    Set {
+        members: Vec<String>,
+    },
+    Zset {
+        members: Vec<(String, f64)>,
+    },
+    /// Stream entries (id, field/value pairs), oldest first.
+    Stream {
+        entries: Vec<(String, Vec<(String, String)>)>,
+    },
+    /// RedisJSON document (Redis Stack), as JSON text.
+    Json {
+        value: String,
+    },
     None,
+}
+
+/// Console commands that would break the shared connection or never return.
+fn blocked_command(name: &str) -> Option<&'static str> {
+    match name.to_ascii_uppercase().as_str() {
+        "SELECT" => Some("SELECT would switch the database for every view of this connection. Pick the database in the Redis tab instead."),
+        "SUBSCRIBE" | "PSUBSCRIBE" | "SSUBSCRIBE" | "MONITOR" => {
+            Some("Subscriptions and MONITOR stream forever and are not supported in the console.")
+        }
+        "MULTI" | "EXEC" | "DISCARD" | "WATCH" | "UNWATCH" => Some(
+            "Transactions need a dedicated connection; the console shares one. Run the commands one by one, or use a Lua script with EVAL.",
+        ),
+        "QUIT" | "RESET" | "HELLO" | "AUTH" => Some("This command changes the connection itself and is not available in the console."),
+        _ => None,
+    }
 }
 
 fn r_err(e: redis::RedisError) -> ClientError {
@@ -127,7 +171,7 @@ impl RedisClient {
         let url = format!("{scheme}://{auth}{host}:{port}/{db}{insecure}");
         let client = redis::Client::open(url).map_err(r_err)?;
         let conn = client.get_multiplexed_async_connection().await.map_err(r_err)?;
-        let mut me = RedisClient { conn, db, tunnel: None };
+        let mut me = RedisClient { conn, db, client, others: Default::default(), tunnel: None };
         // Fail early on bad credentials.
         let _: String = redis::cmd("PING").query_async(&mut me.conn).await.map_err(r_err)?;
         Ok(me)
@@ -138,8 +182,56 @@ impl RedisClient {
         self
     }
 
+    /// This client on another numbered database (`SELECT n` on a connection of its own).
+    pub async fn at(&self, db: i64) -> Result<RedisClient> {
+        if db == self.db {
+            return Ok(self.clone());
+        }
+        if !(0..=1023).contains(&db) {
+            return Err(ClientError::new(format!("invalid database number {db}")));
+        }
+        let mut others = self.others.lock().await;
+        let conn = match others.get(&db) {
+            Some(c) => c.clone(),
+            None => {
+                let mut c = self.client.get_multiplexed_async_connection().await.map_err(r_err)?;
+                redis::cmd("SELECT").arg(db).query_async::<()>(&mut c).await.map_err(r_err)?;
+                others.insert(db, c.clone());
+                c
+            }
+        };
+        Ok(RedisClient { conn, db, client: self.client.clone(), others: self.others.clone(), tunnel: self.tunnel.clone() })
+    }
+
+    /// `INFO <section>` (`server` by default; `everything` for all sections).
     pub async fn info(&self) -> Result<String> {
-        redis::cmd("INFO").arg("server").query_async(&mut self.conn.clone()).await.map_err(r_err)
+        self.info_section("server").await
+    }
+
+    pub async fn info_section(&self, section: &str) -> Result<String> {
+        redis::cmd("INFO").arg(section).query_async(&mut self.conn.clone()).await.map_err(r_err)
+    }
+
+    /// Databases that hold keys (from `INFO keyspace`) and how many the server has.
+    pub async fn databases(&self) -> Result<(i64, Vec<RedisDatabase>)> {
+        let mut c = self.conn.clone();
+        let text: String = redis::cmd("INFO").arg("keyspace").query_async(&mut c).await.map_err(r_err)?;
+        let mut dbs: Vec<RedisDatabase> = text
+            .lines()
+            .filter_map(|l| {
+                let (name, rest) = l.trim().split_once(':')?;
+                let db: i64 = name.strip_prefix("db")?.parse().ok()?;
+                let field = |k: &str| rest.split(',').find_map(|p| p.strip_prefix(&format!("{k}="))?.parse::<i64>().ok()).unwrap_or(0);
+                Some(RedisDatabase { db, keys: field("keys"), expires: field("expires") })
+            })
+            .collect();
+        dbs.sort_by_key(|d| d.db);
+        // Managed services often refuse CONFIG; 16 is Redis's default.
+        let count = match redis::cmd("CONFIG").arg("GET").arg("databases").query_async::<Vec<String>>(&mut c).await {
+            Ok(v) => v.get(1).and_then(|n| n.parse().ok()).unwrap_or(16),
+            Err(_) => 16,
+        };
+        Ok((count, dbs))
     }
 
     pub async fn dbsize(&self) -> Result<i64> {
@@ -196,6 +288,23 @@ impl RedisClient {
             "zset" => RedisValue::Zset {
                 members: redis::cmd("ZRANGE").arg(key).arg(0).arg(9999).arg("WITHSCORES").query_async(&mut c).await.map_err(r_err)?,
             },
+            "stream" => {
+                let raw: redis::Value =
+                    redis::cmd("XRANGE").arg(key).arg("-").arg("+").arg("COUNT").arg(1000).query_async(&mut c).await.map_err(r_err)?;
+                let mut entries = Vec::new();
+                if let serde_json::Value::Array(items) = to_json(raw) {
+                    for item in items {
+                        if let serde_json::Value::Array(pair) = item
+                            && let (Some(id), Some(serde_json::Value::Array(kv))) = (pair.first().and_then(|v| v.as_str()), pair.get(1))
+                        {
+                            let fields = kv.chunks(2).map(|p| (json_text(&p[0]), p.get(1).map(json_text).unwrap_or_default())).collect();
+                            entries.push((id.to_owned(), fields));
+                        }
+                    }
+                }
+                RedisValue::Stream { entries }
+            }
+            "ReJSON-RL" => RedisValue::Json { value: redis::cmd("JSON.GET").arg(key).query_async(&mut c).await.map_err(r_err)? },
             _ => RedisValue::None,
         })
     }
@@ -231,6 +340,19 @@ impl RedisClient {
                 }
                 pipe.add_command(cmd).ignore();
             }
+            RedisValue::Stream { entries } => {
+                for (id, fields) in entries.iter().filter(|e| !e.1.is_empty()) {
+                    let mut cmd = redis::cmd("XADD");
+                    cmd.arg(key).arg(if id.is_empty() { "*" } else { id.as_str() });
+                    for (f, v) in fields {
+                        cmd.arg(f).arg(v);
+                    }
+                    pipe.add_command(cmd).ignore();
+                }
+            }
+            RedisValue::Json { value } => {
+                pipe.cmd("JSON.SET").arg(key).arg("$").arg(value).ignore();
+            }
             _ => {}
         }
         if let Some(ttl) = ttl_ms.filter(|t| *t > 0) {
@@ -260,12 +382,22 @@ impl RedisClient {
     pub async fn command(&self, line: &str) -> Result<serde_json::Value> {
         let args = split_command_line(line);
         let Some((name, rest)) = args.split_first() else { return Err(ClientError::new("empty command")) };
+        if let Some(why) = blocked_command(name) {
+            return Err(ClientError::new(why));
+        }
         let mut cmd = redis::cmd(name);
         for a in rest {
             cmd.arg(a);
         }
         let v: redis::Value = cmd.query_async(&mut self.conn.clone()).await.map_err(r_err)?;
         Ok(to_json(v))
+    }
+}
+
+fn json_text(v: &serde_json::Value) -> String {
+    match v {
+        serde_json::Value::String(s) => s.clone(),
+        other => other.to_string(),
     }
 }
 

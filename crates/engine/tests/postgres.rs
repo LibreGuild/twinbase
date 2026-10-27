@@ -353,3 +353,57 @@ fn create_table_as_keeps_column_types() {
     let rs = r.outcomes.last().unwrap().result.as_ref().unwrap();
     assert_eq!(rs.rows[0][0], twinbase_engine::Value::Text("integer".into()));
 }
+
+#[test]
+fn pgvector_types_operators_and_indexes() {
+    let (_e, mut s) = session();
+    run(
+        &mut s,
+        "CREATE EXTENSION IF NOT EXISTS vector;
+         CREATE TABLE items (id bigserial PRIMARY KEY, label text, embedding vector(3), half halfvec(3), sparse sparsevec(5));
+         CREATE INDEX ON items USING hnsw (embedding vector_l2_ops) WITH (m = 16, ef_construction = 64);
+         CREATE INDEX items_half_idx ON items USING ivfflat (half halfvec_cosine_ops) WITH (lists = 100);
+         INSERT INTO items (label, embedding, half, sparse) VALUES
+           ('a', '[1,2,3]', '[1,2,3]', '{1:1,3:2}/5'),
+           ('b', '[4, 5, 6]', '[0.1,0.2,0.3]', '{2:4}/5'),
+           ('c', '[1,1,1]', '[1,1,1]', '{5:1}/5')",
+    );
+    assert_eq!(one(&mut s, "SELECT embedding FROM items WHERE label = 'b'"), "[4,5,6]");
+    // halfvec keeps half precision, like pgvector.
+    assert_eq!(one(&mut s, "SELECT half FROM items WHERE label = 'b'"), "[0.099975586,0.19995117,0.30004883]");
+    assert_eq!(one(&mut s, "SELECT sparse FROM items WHERE label = 'a'"), "{1:1,3:2}/5");
+    // Nearest neighbours by each distance.
+    assert_eq!(one(&mut s, "SELECT label FROM items ORDER BY embedding <-> '[3,3,3]' LIMIT 1"), "a");
+    assert_eq!(one(&mut s, "SELECT label FROM items ORDER BY embedding <#> '[1,1,1]' LIMIT 1"), "b");
+    assert_eq!(one(&mut s, "SELECT label FROM items ORDER BY embedding <=> '[2,2,2]' LIMIT 1"), "c");
+    assert_eq!(one(&mut s, "SELECT embedding <+> '[0,0,0]' FROM items WHERE label = 'a'"), "6");
+    assert_eq!(one(&mut s, "SELECT embedding <-> '[1,2,4]' FROM items WHERE label = 'a'"), "1");
+    assert_eq!(one(&mut s, "SELECT l2_distance(embedding, '[1,2,3]'::vector) FROM items WHERE label = 'a'"), "0");
+    assert_eq!(one(&mut s, "SELECT inner_product(embedding, '[1,1,1]') FROM items WHERE label = 'b'"), "15");
+    assert_eq!(one(&mut s, "SELECT cosine_distance('[1,0]'::vector, '[0,1]'::vector)"), "1");
+    assert_eq!(one(&mut s, "SELECT vector_dims(embedding) FROM items LIMIT 1"), "3");
+    assert_eq!(one(&mut s, "SELECT l2_normalize('[3,4]'::vector)"), "[0.6,0.8]");
+    assert_eq!(one(&mut s, "SELECT subvector('[1,2,3,4]'::vector, 2, 2)"), "[2,3]");
+    assert_eq!(one(&mut s, "SELECT avg(embedding) FROM items"), "[2,2.6666667,3.3333333]");
+    assert_eq!(one(&mut s, "SELECT embedding + '[1,1,1]' FROM items WHERE label = 'a'"), "[2,3,4]");
+    assert_eq!(one(&mut s, "SELECT '[1,2]'::vector || '[3]'::vector"), "[1,2,3]");
+    assert_eq!(one(&mut s, "SELECT '[1,0,2]'::vector::sparsevec"), "{1:1,3:2}/3");
+    assert_eq!(one(&mut s, "SELECT binary_quantize('[1,-1,0.5]'::vector)"), "101");
+    // Dimension checks.
+    let e = err(&mut s, "INSERT INTO items (embedding) VALUES ('[1,2]')");
+    assert_eq!(e.sqlstate, "22000");
+    assert!(e.message.contains("expected 3 dimensions, not 2"), "{}", e.message);
+    assert!(err(&mut s, "SELECT '[1,2]'::vector <-> '[1,2,3]'::vector").message.contains("different vector dimensions"));
+    // Catalog: drivers look the types up by name.
+    assert_eq!(one(&mut s, "SELECT oid FROM pg_type WHERE typname = 'vector'"), "16390");
+    assert_eq!(one(&mut s, "SELECT extversion FROM pg_extension WHERE extname = 'vector'"), "0.8.0");
+    assert_eq!(
+        one(&mut s, "SELECT format_type(atttypid, atttypmod) FROM pg_attribute WHERE attrelid = 'items'::regclass AND attname = 'half'"),
+        "halfvec(3)"
+    );
+    // Parameters next to a vector column are described as vectors.
+    let w = s.prepare("SELECT id FROM items WHERE embedding <-> $1 < 5").unwrap();
+    assert!(matches!(w.param_types.first(), Some(SqlType::Vector { .. })), "where {:?}", w.param_types);
+    let p = s.prepare("SELECT id FROM items ORDER BY embedding <-> $1 LIMIT 5").unwrap();
+    assert!(matches!(p.param_types.first(), Some(SqlType::Vector { .. })), "{:?}", p.param_types);
+}

@@ -1,5 +1,8 @@
 import { lazy, Suspense, useEffect, useRef } from "react";
+import { BootcampHome } from "./bootcamp/BootcampHome";
+import { LessonPlayer } from "./bootcamp/LessonPlayer";
 import { CommandPalette } from "./components/CommandPalette";
+import { DocsView } from "./components/Docs";
 import { Rail, TopBar } from "./components/Chrome";
 import { ActivityPanel, TabBar } from "./components/Shell";
 import { Sidebar } from "./components/Sidebar";
@@ -15,7 +18,7 @@ import { FirestoreCollectionView, FirestoreQueryView } from "./views/FirestoreVi
 import { SearchIndexView, SearchQueryView } from "./views/SearchView";
 import { MongoCollectionView, MongoQueryView } from "./views/MongoView";
 import { QueryView } from "./views/QueryView";
-import { RedisView } from "./views/RedisView";
+import { RedisConsoleView, RedisView } from "./views/RedisView";
 import { SchemaView } from "./views/SchemaView";
 import { StartPage } from "./views/StartPage";
 import { TableView } from "./views/TableView";
@@ -36,6 +39,7 @@ function TabContent({ tab }: { tab: Tab }) {
       if (kind === "dynamodb") return <DynamoQueryView tab={tab} />;
       if (kind === "firestore") return <FirestoreQueryView tab={tab} />;
       if (kind === "elasticsearch") return <SearchQueryView tab={tab} />;
+      if (kind === "redis") return <RedisConsoleView tab={tab} />;
       return <QueryView tab={tab} />;
     }
     case "firestore":
@@ -60,6 +64,12 @@ function TabContent({ tab }: { tab: Tab }) {
       return <CollectionView tab={tab} />;
     case "schema":
       return <SchemaView tab={tab} />;
+    case "docs":
+      return <DocsView target={tab.target} object={tab.object} />;
+    case "bootcamp":
+      return <BootcampHome />;
+    case "lesson":
+      return <LessonPlayer lessonId={tab.lessonId} tabId={tab.id} />;
   }
 }
 

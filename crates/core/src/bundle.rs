@@ -117,13 +117,14 @@ pub fn export(ws: &Workspace, data: &WorkspaceData, sel: &Selection, out: &Path)
             return Err(CoreError::not_found(format!("mock server '{id}' not found")));
         }
         let dir = ws.mock_dir(id);
-        for f in ["mock.toml", "seed.sql"] {
+        for f in ["mock.toml", "seed.sql", "seed.json"] {
             let p = dir.join(f);
             if p.exists() {
                 zip.start_file(format!("mocks/{id}/{f}"), opts).map_err(io)?;
                 zip.write_all(&std::fs::read(&p).map_err(|e| CoreError::io(&p, e))?).map_err(io)?;
             }
         }
+        add_dir(&mut zip, &dir.join("docs"), &format!("mocks/{id}/docs"))?;
         if sel.include_data {
             add_dir(&mut zip, &dir.join("data"), &format!("mocks/{id}/data"))?;
         }
@@ -137,6 +138,7 @@ pub fn export(ws: &Workspace, data: &WorkspaceData, sel: &Selection, out: &Path)
             zip.start_file(format!("connections/{id}.toml"), opts).map_err(io)?;
             zip.write_all(&std::fs::read(&p).map_err(|e| CoreError::io(&p, e))?).map_err(io)?;
         }
+        add_dir(&mut zip, &ws.root.join("connections").join(id).join("docs"), &format!("connections/{id}/docs"))?;
     }
     for id in &sel.snapshots {
         let p = ws.snapshot_path(id)?;
@@ -226,7 +228,8 @@ pub fn import(ws: &Workspace, data: &WorkspaceData, path: &Path) -> Result<Impor
     let mut skipped_cluster = false;
     for i in 0..zip.len() {
         let mut entry = zip.by_index(i).map_err(io)?;
-        let name = entry.name().to_owned();
+        // Names that aren't valid UTF-8 can't be ours; skip them.
+        let Ok(name) = entry.name().map(|n| n.into_owned()) else { continue };
         if name == "manifest.json" || entry.is_dir() || entry.enclosed_name().is_none() {
             continue;
         }
@@ -244,7 +247,7 @@ pub fn import(ws: &Workspace, data: &WorkspaceData, path: &Path) -> Result<Impor
             continue;
         }
         let kind = parts[0];
-        let (old_id, rest): (String, Vec<&str>) = if kind == "connections" {
+        let (old_id, rest): (String, Vec<&str>) = if kind == "connections" && parts.len() == 2 {
             (parts[1].trim_end_matches(".toml").to_owned(), vec![])
         } else if kind == "snapshots" {
             (parts[1].trim_end_matches(".json").to_owned(), vec![])
@@ -253,7 +256,11 @@ pub fn import(ws: &Workspace, data: &WorkspaceData, path: &Path) -> Result<Impor
         };
         let Some(new_id) = map.get(&(kind.to_owned(), old_id.clone())) else { continue };
         let target: PathBuf = match kind {
-            "connections" => ws.root.join("connections").join(format!("{new_id}.toml")),
+            "connections" if rest.is_empty() => ws.root.join("connections").join(format!("{new_id}.toml")),
+            // Object docs of a connection: only `connections/<id>/docs/<object>.toml`.
+            "connections" if rest.len() == 2 && rest[0] == "docs" && rest[1].ends_with(".toml") => {
+                ws.root.join("connections").join(new_id).join("docs").join(rest[1])
+            }
             "snapshots" => ws.root.join("snapshots").join(format!("{new_id}.json")),
             "mocks" | "queries" => {
                 let mut p = ws.root.join(kind).join(new_id);

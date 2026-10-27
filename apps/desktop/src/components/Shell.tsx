@@ -1,9 +1,10 @@
 // Tab bar and activity panel.
 
-import { Activity as ActivityIcon, Bot, Braces, Code2, FileText, FolderTree, GitCompare, KeyRound, Layers, LayoutGrid, Rows3, Search, Server, Terminal, Trash2, X } from "lucide-react";
+import { Activity as ActivityIcon, BookOpen, Bot, GraduationCap, Home, Braces, Code2, FileText, FolderTree, GitCompare, KeyRound, Layers, LayoutGrid, Plus, Rows3, Search, Server, Terminal, Trash2, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { duration, timeOfDay } from "../lib/format";
 import { targetInfo, useStore, type Tab } from "../lib/store";
+import { LESSONS } from "../bootcamp/curriculum";
 import { ConfirmDialog, KindIcon } from "./ui";
 
 export function tabTitle(t: Tab): string {
@@ -20,7 +21,7 @@ export function tabTitle(t: Tab): string {
     case "diagram":
       return `${targetInfo(t.connection)?.name ?? "Diagram"} · diagram`;
     case "redis":
-      return `${targetInfo(t.connection)?.name ?? "Redis"} · keys`;
+      return `${targetInfo(t.connection)?.name ?? "Redis"} · ${t.db !== undefined ? `db${t.db}` : "keys"}`;
     case "mongo":
       return t.collection;
     case "dynamo":
@@ -33,11 +34,19 @@ export function tabTitle(t: Tab): string {
       return ws?.mocks.find((m) => m.id === t.mockId)?.name ?? "Mock";
     case "collection":
       return ws?.collections.find((c) => c.id === t.collectionId)?.name ?? "Collection";
+    case "docs":
+      return t.object ? `${t.object} · docs` : t.target ? `${targetInfo(t.target)?.name ?? t.target} · docs` : "README";
+    case "bootcamp":
+      return "Bootcamp";
+    case "lesson":
+      return LESSONS.get(t.lessonId)?.lesson.title ?? "Lesson";
   }
 }
 
 function tabIcon(t: Tab): ReactNode {
   switch (t.kind) {
+    case "home":
+      return <Home size={13} className="muted" />;
     case "table":
       return <Rows3 size={13} className="muted" />;
     case "query":
@@ -49,6 +58,8 @@ function tabIcon(t: Tab): ReactNode {
         <FileText size={13} className="kind-firestore" />
       ) : targetInfo(t.connection)?.kind === "elasticsearch" ? (
         <Terminal size={13} className="kind-es" />
+      ) : targetInfo(t.connection)?.kind === "redis" ? (
+        <Terminal size={13} className="kind-redis" />
       ) : (
         <Code2 size={13} className="muted" />
       );
@@ -72,6 +83,12 @@ function tabIcon(t: Tab): ReactNode {
       return <FileText size={13} className="muted" />;
     case "schema":
       return <GitCompare size={13} className="muted" />;
+    case "docs":
+      return <BookOpen size={13} className="muted" />;
+    case "bootcamp":
+      return <GraduationCap size={13} className="c-bootcamp" />;
+    case "lesson":
+      return <GraduationCap size={13} className="c-bootcamp" />;
     default:
       return null;
   }
@@ -86,41 +103,60 @@ export function TabBar() {
   useStore((s) => s.workspace); // titles depend on workspace names
   const [confirm, setConfirm] = useState<string | null>(null);
   const activeRef = useRef<HTMLDivElement>(null);
+  const strip = useRef<HTMLDivElement>(null);
   useEffect(() => {
     activeRef.current?.scrollIntoView({ block: "nearest", inline: "nearest" });
   }, [active]);
+  // A mouse wheel scrolls the tabs sideways; trackpads already scroll horizontally.
+  useEffect(() => {
+    const el = strip.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      if (Math.abs(e.deltaY) <= Math.abs(e.deltaX) || el.scrollWidth <= el.clientWidth) return;
+      el.scrollLeft += e.deltaY;
+      e.preventDefault();
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, []);
   const close = (id: string) => (dirty[id] ? setConfirm(id) : closeTab(id));
   return (
-    <div className="tabbar" role="tablist">
-      {tabs.map((t) => {
-        const title = tabTitle(t);
-        return (
-          <div
-            key={t.id}
-            ref={t.id === active ? activeRef : undefined}
-            className={`tab${t.id === active ? " active" : ""}`}
-            role="tab"
-            aria-selected={t.id === active}
-            title={title}
-            onClick={() => setActive(t.id)}
-            onMouseDown={(e) => e.button === 1 && (e.preventDefault(), close(t.id))}
-          >
-            {tabIcon(t)}
-            <span className="title">{title}</span>
-            {dirty[t.id] ? <span className="dirty" title="Unsaved changes" /> : null}
-            <button
-              className="icon-btn sm close"
-              aria-label={`Close ${title}`}
-              onClick={(e) => {
-                e.stopPropagation();
-                close(t.id);
-              }}
+    <div className="tabstrip">
+      <div className="tabbar" role="tablist" ref={strip}>
+        {tabs.map((t) => {
+          const title = tabTitle(t);
+          return (
+            <div
+              key={t.id}
+              ref={t.id === active ? activeRef : undefined}
+              className={`tab${t.id === active ? " active" : ""}`}
+              role="tab"
+              aria-selected={t.id === active}
+              title={title}
+              onClick={() => setActive(t.id)}
+              onMouseDown={(e) => e.button === 1 && (e.preventDefault(), close(t.id))}
             >
-              <X size={12} />
-            </button>
-          </div>
-        );
-      })}
+              {tabIcon(t)}
+              <span className="title">{title}</span>
+              {dirty[t.id] ? <span className="dirty" title="Unsaved changes" /> : null}
+              <button
+                className="icon-btn sm close"
+                aria-label={`Close ${title}`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  close(t.id);
+                }}
+              >
+                <X size={12} />
+              </button>
+            </div>
+          );
+        })}
+      </div>
+      <span className="grow" />
+      <button className="icon-btn tab-new" title="New query (⌘/Ctrl+T)" aria-label="New query" onClick={() => useStore.getState().openTab({ kind: "query", sql: "", title: "New query" })}>
+        <Plus size={16} />
+      </button>
       {confirm && <ConfirmDialog title="Close tab with unsaved changes?" body="Staged edits or unsaved SQL in this tab will be lost." confirmLabel="Close tab" danger onClose={() => setConfirm(null)} onConfirm={() => useStore.getState().closeTab(confirm)} />}
     </div>
   );

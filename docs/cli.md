@@ -9,6 +9,7 @@ with `cargo build --release -p twinbase-cli`.
 | `twinbase serve [--workspace DIR] [--port N] [--all-mocks] [--dev-api]` | Run the core headless: auto-start mocks (or all), serve MCP. `--dev-api` also exposes the JSON API for the browser UI. |
 | `twinbase mcp [--url URL] [--token T]` | stdio MCP bridge to the running app (what agents launch). |
 | `twinbase mcp-setup` | Print configuration for supported agents. |
+| `twinbase agent list` / `twinbase agent install <agent>` | Show detected coding agents; add TwinBase to one's MCP config (or print its one-line command). |
 | `twinbase export -o FILE [--mock ID]… [--collection ID]… [--workspace DIR] [--no-data]` | Write a `.twinbase` bundle. |
 | `twinbase import FILE [--workspace DIR]` | Import a bundle. |
 

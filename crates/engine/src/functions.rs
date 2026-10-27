@@ -259,6 +259,8 @@ pub fn register(conn: &Connection, env: Arc<FnEnv>) -> rusqlite::Result<()> {
         })?;
     }
 
+    crate::vector::register(conn)?;
+
     // --- time -----------------------------------------------------------------------------------
     conn.create_scalar_function("tb_now", 0, vol, |_| Ok(value::now_text()))?;
     conn.create_scalar_function("tb_current_date", 0, vol, |_| Ok(chrono::Utc::now().format("%Y-%m-%d").to_string()))?;
@@ -953,9 +955,17 @@ fn format_type_oid(cat: &Catalog, oid: u32, typmod: i64) -> String {
         1022 => "double precision[]",
         2951 => "uuid[]",
         3807 => "jsonb[]",
+        16390 => "vector",
+        16392 => "halfvec",
+        16394 => "sparsevec",
+        16391 => "vector[]",
+        16393 => "halfvec[]",
+        16395 => "sparsevec[]",
         _ => "unknown",
     };
     match oid {
+        // pgvector's typmod is the dimension count.
+        16390 | 16392 | 16394 if typmod > 0 => format!("{base}({typmod})"),
         1042 | 1043 if typmod > 4 => format!("{base}({})", typmod - 4),
         1700 if typmod > 4 => {
             let m = typmod - 4;

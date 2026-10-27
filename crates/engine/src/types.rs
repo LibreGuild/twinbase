@@ -46,6 +46,11 @@ pub enum SqlType {
     Array {
         element: Box<SqlType>,
     },
+    /// pgvector `vector(n)`, `halfvec(n)` or `sparsevec(n)`; stored as canonical text.
+    Vector {
+        family: crate::vector::VectorKind,
+        dim: Option<u32>,
+    },
     /// Any other type name: stored and returned as text.
     Other {
         name: String,
@@ -230,6 +235,9 @@ impl SqlType {
                 SqlType::Enum { name: String::new(), values }
             }
             "SET" => SqlType::Text,
+            "VECTOR" | "HALFVEC" | "SPARSEVEC" => {
+                SqlType::Vector { family: crate::vector::VectorKind::from_name(&full_name).unwrap(), dim: n0 }
+            }
             _ => {
                 let lower = raw.to_ascii_lowercase();
                 if let Some(values) = lookup_enum(&lower) {
@@ -318,6 +326,7 @@ impl SqlType {
             SqlType::Numeric { .. } => 1700,
             SqlType::Uuid => 2950,
             SqlType::Jsonb => 3802,
+            SqlType::Vector { family: kind, .. } => kind.oid(),
             // Enums are reported as text on the wire so generic clients can decode them.
             SqlType::Enum { .. } => 25,
             SqlType::Array { element } => match element.as_ref() {
@@ -339,6 +348,7 @@ impl SqlType {
                 SqlType::Uuid => 2951,
                 SqlType::Json => 199,
                 SqlType::Jsonb => 3807,
+                SqlType::Vector { family: kind, .. } => kind.array_oid(),
                 _ => 1009,
             },
         }
@@ -368,6 +378,7 @@ impl SqlType {
             SqlType::Jsonb => "jsonb".into(),
             SqlType::Enum { name, .. } => name.clone(),
             SqlType::Array { element } => format!("_{}", element.pg_udt_name()),
+            SqlType::Vector { family: kind, .. } => kind.name().into(),
             SqlType::Other { name } => name.clone(),
         }
     }
@@ -398,6 +409,8 @@ impl SqlType {
             SqlType::Jsonb => "jsonb".into(),
             SqlType::Enum { name, .. } => name.clone(),
             SqlType::Array { element } => format!("{}[]", element.pg_format_type()),
+            SqlType::Vector { family: kind, dim: Some(n) } => format!("{}({n})", kind.name()),
+            SqlType::Vector { family: kind, dim: None } => kind.name().into(),
             SqlType::Other { name } => name.clone(),
         }
     }
@@ -406,7 +419,7 @@ impl SqlType {
     pub fn pg_info_data_type(&self) -> String {
         match self {
             SqlType::Array { .. } => "ARRAY".into(),
-            SqlType::Enum { .. } => "USER-DEFINED".into(),
+            SqlType::Enum { .. } | SqlType::Vector { .. } => "USER-DEFINED".into(),
             SqlType::Numeric { .. } => "numeric".into(),
             SqlType::Varchar { .. } => "character varying".into(),
             SqlType::Char { .. } => "character".into(),
@@ -417,6 +430,7 @@ impl SqlType {
     /// MySQL `DATA_TYPE` (information_schema) name.
     pub fn mysql_data_type(&self) -> String {
         match self {
+            SqlType::Vector { .. } => "vector".into(),
             SqlType::Bool | SqlType::Int1 => "tinyint".into(),
             SqlType::Int2 => "smallint".into(),
             SqlType::Int4 => "int".into(),
@@ -442,6 +456,7 @@ impl SqlType {
     /// MySQL `COLUMN_TYPE`, e.g. `varchar(255)`, `tinyint(1)`, `enum('a','b')`.
     pub fn mysql_column_type(&self) -> String {
         match self {
+            SqlType::Vector { dim: Some(n), .. } => format!("vector({n})"),
             SqlType::Bool => "tinyint(1)".into(),
             SqlType::Numeric { precision, scale } => {
                 format!("decimal({},{})", precision.unwrap_or(10), scale.unwrap_or(0))
@@ -500,6 +515,10 @@ impl SqlType {
     /// Oracle column type, e.g. `NUMBER(10)`, `VARCHAR2(255 CHAR)`, `TIMESTAMP WITH TIME ZONE`.
     pub fn oracle_column_type(&self) -> String {
         match self {
+            SqlType::Vector { family: crate::vector::VectorKind::Sparsevec, dim } => {
+                format!("VECTOR({}, FLOAT32, SPARSE)", dim.map(|n| n.to_string()).unwrap_or_else(|| "*".into()))
+            }
+            SqlType::Vector { dim, .. } => format!("VECTOR({}, FLOAT32)", dim.map(|n| n.to_string()).unwrap_or_else(|| "*".into())),
             SqlType::Bool | SqlType::Int1 => "NUMBER(3)".into(),
             SqlType::Int2 => "NUMBER(5)".into(),
             SqlType::Int4 | SqlType::Year => "NUMBER(10)".into(),
@@ -562,6 +581,11 @@ impl SqlType {
             if spanner { format!("({})", n.map(|n| n.to_string()).unwrap_or_else(|| "MAX".into())) } else { String::new() }
         };
         match self {
+            SqlType::Vector { dim, .. } if spanner => match dim {
+                Some(n) => format!("ARRAY<FLOAT32>(vector_length=>{n})"),
+                None => "ARRAY<FLOAT32>".into(),
+            },
+            SqlType::Vector { .. } => "ARRAY<FLOAT64>".into(),
             SqlType::Bool => "BOOL".into(),
             SqlType::Int1 | SqlType::Int2 | SqlType::Int4 | SqlType::Int8 | SqlType::Year => "INT64".into(),
             SqlType::Float4 => {
@@ -647,6 +671,8 @@ impl SqlType {
     /// CQL column type, e.g. `bigint`, `decimal`, `list<text>`.
     pub fn cql_column_type(&self) -> String {
         match self {
+            SqlType::Vector { dim: Some(n), .. } => format!("vector<float, {n}>"),
+            SqlType::Vector { .. } => "list<float>".into(),
             SqlType::Bool => "boolean".into(),
             SqlType::Int1 => "tinyint".into(),
             SqlType::Int2 => "smallint".into(),
@@ -673,6 +699,7 @@ impl SqlType {
     /// ClickHouse column type (without `Nullable`), e.g. `Int64`, `Decimal(10, 2)`, `DateTime64(6)`.
     pub fn clickhouse_column_type(&self) -> String {
         match self {
+            SqlType::Vector { .. } => "Array(Float32)".into(),
             SqlType::Bool => "Bool".into(),
             SqlType::Int1 => "Int8".into(),
             SqlType::Int2 => "Int16".into(),
@@ -703,6 +730,8 @@ impl SqlType {
     /// SQL Server column type, e.g. `nvarchar(255)`, `decimal(10,2)`, `datetime2`.
     pub fn mssql_column_type(&self) -> String {
         match self {
+            SqlType::Vector { dim: Some(n), .. } => format!("vector({n})"),
+            SqlType::Vector { .. } => "nvarchar(max)".into(),
             SqlType::Bool => "bit".into(),
             SqlType::Int1 | SqlType::Int2 => "smallint".into(),
             SqlType::Int4 | SqlType::Year => "int".into(),

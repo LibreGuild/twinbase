@@ -118,6 +118,7 @@ pub async fn call(app: &Arc<App>, method: &str, params: Value, actor: &Actor) ->
             | "redis.scan"
             | "redis.get"
             | "redis.info"
+            | "redis.databases"
             | "mongo.databases"
             | "mongo.collections"
             | "mongo.find"
@@ -135,6 +136,11 @@ pub async fn call(app: &Arc<App>, method: &str, params: Value, actor: &Actor) ->
             | "search.documents"
             | "search.get"
             | "activity.list"
+            | "docs.get"
+            | "docs.list"
+            | "bootcamp.info"
+            | "bootcamp.progress.get"
+            | "bootcamp.progress.save"
             | "bundle.inspect"
             | "mcp.config"
             | "connection.test"
@@ -218,6 +224,11 @@ fn summarize(method: &str, params: &Value) -> String {
         "bundle.export" => "Exported a bundle".into(),
         "bundle.import" => "Imported a bundle".into(),
         "settings.update" => "Changed settings".into(),
+        "docs.set" => match (params.get("target").and_then(|v| v.as_str()), params.get("object").and_then(|v| v.as_str())) {
+            (None, _) => "Edited the workspace README".into(),
+            (Some(t), None) => format!("Edited the docs of {t}"),
+            (Some(_), Some(o)) => format!("Edited the docs of {o}"),
+        },
         "workspace.open" => format!("Opened workspace {}", s("path")),
         "redis.set" => format!("Set key {}", s("key")),
         "redis.delete" => "Deleted keys".into(),
@@ -305,6 +316,29 @@ async fn dispatch(app: &Arc<App>, method: &str, params: &Value, actor: &Actor) -
             if q.connection.id.starts_with("mock:") {
                 return Err(CoreError::invalid("mock connections are managed by their mock server"));
             }
+            let existing = data.connections.iter().find(|c| c.id == q.connection.id);
+            // Docs change only through `docs.set`; editing the connection keeps them.
+            q.connection.docs = existing.map(|c| c.docs.clone()).unwrap_or_default();
+            // Agents never decide how much access agents get.
+            if matches!(actor, Actor::Agent { .. }) {
+                if let Some(old) = existing {
+                    app.check_access(old, actor, true)?;
+                    q.connection.ai_access = old.ai_access;
+                    q.connection.read_only = old.read_only;
+                    // Pointing a saved connection elsewhere would send its stored password there.
+                    q.connection.kind = old.kind;
+                    q.connection.host = old.host.clone();
+                    q.connection.port = old.port;
+                    q.connection.user = old.user.clone();
+                    q.connection.path = old.path.clone();
+                    q.connection.tls = old.tls;
+                    q.connection.ssh = old.ssh.clone();
+                    q.password = None;
+                    q.ssh_secret = None;
+                } else {
+                    q.connection.ai_access = crate::model::AiAccess::ReadOnly;
+                }
+            }
             // Workspace files may be committed: keep passwords in connection strings out of them.
             if let Some((uri, user, password)) = split_uri_password(&q.connection.host) {
                 q.connection.host = uri;
@@ -330,6 +364,7 @@ async fn dispatch(app: &Arc<App>, method: &str, params: &Value, actor: &Actor) -
             let q: IdParam = p(params)?;
             app.disconnect(&q.id).await;
             app.workspace().delete_connection(&q.id)?;
+            app.workspace().delete_connection_docs(&q.id)?;
             app.set_password(&q.id, None)?;
             app.set_ssh_secret(&q.id, None)?;
             app.reload()?;
@@ -369,6 +404,7 @@ async fn dispatch(app: &Arc<App>, method: &str, params: &Value, actor: &Actor) -
         }
         "connection.connect" => {
             let q: IdParam = p(params)?;
+            app.check_access(&app.connection_def(&q.id)?, actor, false)?;
             let client = app.client(&q.id).await?;
             let version = match client.as_ref() {
                 twinbase_client::Client::Sql(s) => s.server_version().await?,
@@ -403,6 +439,8 @@ async fn dispatch(app: &Arc<App>, method: &str, params: &Value, actor: &Actor) -
             if q.mock.port == 0 {
                 q.mock.port = suggest_port(app, q.mock.kind).await;
             }
+            // Docs change only through `docs.set`; editing the mock keeps them.
+            q.mock.docs = data.mocks.iter().find(|m| m.id == q.mock.id).map(|m| m.docs.clone()).unwrap_or_default();
             if let Some(other) = data.mocks.iter().find(|m| m.port == q.mock.port && m.id != q.mock.id) {
                 return Err(CoreError::conflict(format!("port {} is already used by mock '{}'", q.mock.port, other.name)));
             }
@@ -808,7 +846,7 @@ async fn dispatch(app: &Arc<App>, method: &str, params: &Value, actor: &Actor) -
             Ok(v)
         }
         // ------------------------------------------------------------------ Redis
-        "redis.scan" | "redis.get" | "redis.set" | "redis.delete" | "redis.expire" | "redis.command" | "redis.info" => {
+        "redis.scan" | "redis.get" | "redis.set" | "redis.delete" | "redis.expire" | "redis.command" | "redis.info" | "redis.databases" => {
             redis_call(app, method, params, actor).await
         }
         m if m.starts_with("mongo.") => mongo_call(app, method, params, actor).await,
@@ -924,6 +962,89 @@ async fn dispatch(app: &Arc<App>, method: &str, params: &Value, actor: &Actor) -
             app.reload()?;
             Ok(serde_json::to_value(summary)?)
         }
+        // ------------------------------------------------------------------ bootcamp
+        "bootcamp.open" => {
+            let dir = crate::bootcamp::workspace_dir(app.local.dir());
+            crate::bootcamp::prepare(&dir)?;
+            if app.workspace().root != dir {
+                app.open_workspace(dir.clone(), Some("Bootcamp")).await?;
+            }
+            Ok(json!({ "path": dir.to_string_lossy(), "mocks": crate::bootcamp::LAB_MOCKS.iter().map(|m| m.0).collect::<Vec<_>>() }))
+        }
+        "bootcamp.info" => {
+            let dir = crate::bootcamp::workspace_dir(app.local.dir());
+            Ok(json!({ "path": dir.to_string_lossy(), "active": app.workspace().root == dir }))
+        }
+        "bootcamp.progress.get" => Ok(crate::bootcamp::load_progress(app.local.dir())),
+        "bootcamp.progress.save" => {
+            crate::bootcamp::save_progress(app.local.dir(), params.get("progress").unwrap_or(&Value::Null))?;
+            Ok(json!({ "saved": true }))
+        }
+        // ------------------------------------------------------------------ docs
+        "docs.get" => {
+            let q: DocsParam = p(params)?;
+            let data = app.data();
+            let ws = app.workspace();
+            match (&q.target, &q.object) {
+                (None, _) => Ok(json!({ "docs": ws.readme() })),
+                (Some(t), None) => {
+                    let target = docs_target(app, &data, t, actor)?;
+                    Ok(json!({ "docs": target_docs(&data, &target) }))
+                }
+                (Some(t), Some(o)) => {
+                    let target = docs_target(app, &data, t, actor)?;
+                    Ok(serde_json::to_value(ws.object_docs(&target, o)?)?)
+                }
+            }
+        }
+        "docs.list" => {
+            let q: DocsParam = p(params)?;
+            let data = app.data();
+            let Some(t) = &q.target else {
+                return Ok(json!({ "docs": app.workspace().readme() }));
+            };
+            let target = docs_target(app, &data, t, actor)?;
+            Ok(json!({ "docs": target_docs(&data, &target), "objects": app.workspace().list_object_docs(&target)? }))
+        }
+        "docs.set" => {
+            #[derive(Deserialize)]
+            struct P {
+                #[serde(flatten)]
+                at: DocsParam,
+                #[serde(default)]
+                docs: String,
+                /// Object docs only: per-column docs (an empty value removes one).
+                #[serde(default)]
+                columns: std::collections::BTreeMap<String, String>,
+            }
+            let q: P = p(params)?;
+            if q.docs.len() > 1 << 20 {
+                return Err(CoreError::invalid("docs are limited to 1 MB"));
+            }
+            let data = app.data();
+            let ws = app.workspace();
+            match (&q.at.target, &q.at.object) {
+                (None, _) => ws.save_readme(&q.docs)?,
+                (Some(t), None) => match docs_target(app, &data, t, actor)? {
+                    crate::docs::DocsTarget::Connection(id) => {
+                        let mut c = data.connections.iter().find(|c| c.id == id).cloned().unwrap();
+                        c.docs = q.docs.clone();
+                        ws.save_connection(&c)?;
+                    }
+                    crate::docs::DocsTarget::Mock(id) => {
+                        let mut m = data.mocks.iter().find(|m| m.id == id).cloned().unwrap();
+                        m.docs = q.docs.clone();
+                        ws.save_mock(&m)?;
+                    }
+                },
+                (Some(t), Some(o)) => {
+                    let target = docs_target(app, &data, t, actor)?;
+                    ws.save_object_docs(&target, o, &crate::docs::ObjectDocs { docs: q.docs.clone(), columns: q.columns.clone() })?;
+                }
+            }
+            app.reload()?;
+            Ok(json!({ "saved": true }))
+        }
         // ------------------------------------------------------------------ misc
         "activity.list" => {
             let limit = params.get("limit").and_then(|v| v.as_u64()).unwrap_or(200) as usize;
@@ -939,8 +1060,78 @@ async fn dispatch(app: &Arc<App>, method: &str, params: &Value, actor: &Actor) -
             v["listening"] = json!(app.mcp_listening().is_some());
             Ok(v)
         }
+        "app.open_url" => {
+            // Links from docs and agent setup (https, and editor deep links); never files or scripts.
+            if !matches!(actor, Actor::User) {
+                return Err(CoreError::forbidden("only the user can open links"));
+            }
+            let url = params.get("url").and_then(|v| v.as_str()).unwrap_or_default();
+            let allowed = ["https://", "http://", "mailto:", "cursor://", "vscode:", "vscode-insiders:"];
+            if !allowed.iter().any(|p| url.starts_with(p)) || url.chars().any(|c| c.is_control() || c == ' ') {
+                return Err(CoreError::invalid("only web links and editor install links can be opened"));
+            }
+            open_url(url).map_err(|e| CoreError::new("io", format!("could not open the link: {e}")))?;
+            Ok(json!({ "opened": true }))
+        }
+        "mcp.install" => {
+            // Writing agents' config files is the user's decision, never an agent's.
+            if !matches!(actor, Actor::User) {
+                return Err(CoreError::forbidden("only the user can install TwinBase into an agent"));
+            }
+            let agent = params.get("agent").and_then(|v| v.as_str()).unwrap_or_default();
+            let mut s = app.settings();
+            if let Some(port) = app.mcp_listening() {
+                s.mcp.port = port;
+            }
+            crate::mcp::install(&s, agent)
+        }
         other => Err(CoreError::not_found(format!("unknown method '{other}'"))),
     }
+}
+
+#[derive(Deserialize)]
+struct DocsParam {
+    /// Connection id, mock id or `mock:<id>`; none = the workspace README.
+    #[serde(default)]
+    target: Option<String>,
+    /// Table, view, collection, index or key pattern of the target.
+    #[serde(default)]
+    object: Option<String>,
+}
+
+/// Resolve a docs target; agents get nothing for connections that are closed to AI.
+fn docs_target(app: &App, data: &crate::model::WorkspaceData, id: &str, actor: &Actor) -> Result<crate::docs::DocsTarget> {
+    let target = crate::docs::resolve_target(data, id)?;
+    if let crate::docs::DocsTarget::Connection(cid) = &target {
+        app.check_access(&app.connection_def(cid)?, actor, false)?;
+    }
+    Ok(target)
+}
+
+fn target_docs(data: &crate::model::WorkspaceData, target: &crate::docs::DocsTarget) -> String {
+    match target {
+        crate::docs::DocsTarget::Connection(id) => data.connections.iter().find(|c| &c.id == id).map(|c| c.docs.clone()),
+        crate::docs::DocsTarget::Mock(id) => data.mocks.iter().find(|m| &m.id == id).map(|m| m.docs.clone()),
+    }
+    .unwrap_or_default()
+}
+
+/// Hand a URL to the system's default handler (no shell involved).
+fn open_url(url: &str) -> std::io::Result<()> {
+    let mut cmd = if cfg!(target_os = "macos") {
+        let mut c = std::process::Command::new("open");
+        c.arg(url);
+        c
+    } else if cfg!(windows) {
+        let mut c = std::process::Command::new("rundll32");
+        c.args(["url.dll,FileProtocolHandler", url]);
+        c
+    } else {
+        let mut c = std::process::Command::new("xdg-open");
+        c.arg(url);
+        c
+    };
+    cmd.stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).spawn().map(|_| ())
 }
 
 /// Where one side of a schema comparison comes from.
@@ -1029,12 +1220,24 @@ async fn redis_call(app: &Arc<App>, method: &str, params: &Value, actor: &Actor)
         return Err(CoreError::invalid(format!("'{}' is not a Redis connection", def.name)));
     }
     let client = app.client(&q.connection).await?;
-    let r = client.redis().unwrap();
+    let base = client.redis().unwrap();
+    // `db` picks another numbered database than the connection's own.
+    let r = match params.get("db").and_then(|v| v.as_i64()) {
+        Some(db) => base.at(db).await?,
+        None => base.clone(),
+    };
+    let r = &r;
     let s = |k: &str| params.get(k).and_then(|v| v.as_str()).unwrap_or("").to_owned();
     match method {
         "redis.info" => {
             app.check_access(&def, actor, false)?;
-            Ok(json!({ "info": r.info().await?, "keys": r.dbsize().await? }))
+            let section = params.get("section").and_then(|v| v.as_str()).unwrap_or("server");
+            Ok(json!({ "info": r.info_section(section).await?, "keys": r.dbsize().await?, "db": r.db }))
+        }
+        "redis.databases" => {
+            app.check_access(&def, actor, false)?;
+            let (count, dbs) = r.databases().await?;
+            Ok(json!({ "count": count, "default": base.db, "databases": dbs }))
         }
         "redis.scan" => {
             app.check_access(&def, actor, false)?;
@@ -1781,7 +1984,16 @@ async fn capture_seed(app: &Arc<App>, id: &str) -> Result<String> {
     if let Some(Backend::Redis(_)) = app.mock_backend(id).await {
         let client = app.client(&crate::model::mock_connection_id(id)).await?;
         let r = client.redis().unwrap();
-        let (_, keys) = r.scan("*", 0, 100_000, None).await?;
+        let mut keys = Vec::new();
+        let mut cursor = 0;
+        loop {
+            let (next, batch) = r.scan("*", cursor, 10_000, None).await?;
+            keys.extend(batch);
+            if next == 0 {
+                break;
+            }
+            cursor = next;
+        }
         let mut out = String::from("# TwinBase Redis seed: one command per line\n");
         for k in keys {
             let quote = |s: &str| format!("\"{}\"", s.replace('\\', "\\\\").replace('"', "\\\""));
@@ -1803,6 +2015,13 @@ async fn capture_seed(app: &Arc<App>, id: &str) -> Result<String> {
                     quote(&k.key),
                     members.iter().map(|(m, s)| format!("{s} {}", quote(m))).collect::<Vec<_>>().join(" ")
                 )),
+                RedisValue::Stream { entries } => {
+                    for (id, fields) in entries {
+                        let kv = fields.iter().map(|(f, v)| format!("{} {}", quote(f), quote(v))).collect::<Vec<_>>().join(" ");
+                        out.push_str(&format!("XADD {} {id} {kv}\n", quote(&k.key)));
+                    }
+                }
+                RedisValue::Json { value } => out.push_str(&format!("JSON.SET {} $ {}\n", quote(&k.key), quote(&value))),
                 RedisValue::None => {}
             }
         }

@@ -393,7 +393,7 @@ pub fn translate(sql: &str, ctx: &Ctx<'_>) -> Result<Plan> {
     let statements = match ctx.dialect {
         Dialect::MySql => Parser::parse_sql(&MySqlDialect {}, sql),
         Dialect::MsSql => Parser::parse_sql(&MsSqlDialect {}, sql),
-        Dialect::Postgres => Parser::parse_sql(&PostgreSqlDialect {}, sql),
+        Dialect::Postgres => Parser::parse_sql(&PostgreSqlDialect {}, &crate::vector::rewrite_operators(sql)),
     };
     let mut statements = match statements {
         Ok(s) => s,

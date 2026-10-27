@@ -347,6 +347,11 @@ impl RedisStore {
         self.dbs.lock().iter().map(|d| d.len()).sum()
     }
 
+    /// Keys per non-empty database, for `INFO keyspace`.
+    pub fn keyspace(&self) -> Vec<(usize, usize)> {
+        self.dbs.lock().iter().enumerate().filter(|(_, d)| !d.is_empty()).map(|(i, d)| (i, d.len())).collect()
+    }
+
     pub fn flush_all(&self) {
         for db in self.dbs.lock().iter_mut() {
             db.clear();

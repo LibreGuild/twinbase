@@ -27,7 +27,7 @@ export interface DesignTable {
 }
 
 export const TYPE_SUGGESTIONS: Record<SqlKind, string[]> = {
-  postgres: ["integer", "bigint", "smallint", "serial", "bigserial", "numeric(10,2)", "real", "double precision", "boolean", "text", "varchar(255)", "char(2)", "uuid", "date", "time", "timestamp", "timestamptz", "interval", "jsonb", "json", "bytea", "text[]", "integer[]"],
+  postgres: ["integer", "bigint", "smallint", "serial", "bigserial", "numeric(10,2)", "real", "double precision", "boolean", "text", "varchar(255)", "char(2)", "uuid", "date", "time", "timestamp", "timestamptz", "interval", "jsonb", "json", "bytea", "text[]", "integer[]", "vector(1536)", "halfvec(1536)", "sparsevec(30000)"],
   mysql: ["int", "bigint", "smallint", "tinyint", "decimal(10,2)", "double", "float", "boolean", "varchar(255)", "text", "longtext", "char(36)", "date", "datetime", "timestamp", "time", "json", "blob", "enum('a','b')"],
   sqlite: ["integer", "real", "text", "blob", "numeric", "boolean", "datetime"],
   oracle: ["NUMBER(10)", "NUMBER(19)", "NUMBER(12,2)", "VARCHAR2(255 CHAR)", "VARCHAR2(4000 CHAR)", "CHAR(1)", "CLOB", "BLOB", "DATE", "TIMESTAMP", "TIMESTAMP WITH TIME ZONE", "BINARY_DOUBLE", "RAW(16)"],

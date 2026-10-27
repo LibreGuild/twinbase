@@ -1,0 +1,13 @@
+# `cargo audit` exceptions, each with the reason it does not affect TwinBase. Revisit when the
+# upstream crates release fixes.
+[advisories]
+ignore = [
+    # zstd / zstd-safe (via mysql_common 0.32 <- opensrv-mysql 0.7, the newest release): zstd is only
+    # used to decode MySQL binlog transaction payloads, which the MySQL mock never reads.
+    "RUSTSEC-2026-0391",
+    "RUSTSEC-2026-0398",
+    "RUSTSEC-2026-0403",
+    # rsa (via russh): the Marvin timing attack targets RSA decryption; TwinBase only signs SSH
+    # authentication challenges with the user's own key. No fixed version exists.
+    "RUSTSEC-2023-0071",
+]

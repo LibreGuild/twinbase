@@ -1,15 +1,17 @@
 // Start page: quick actions, schema templates and recent activity.
 
-import { ArrowRight, Blocks, BookMarked, Bot, FileDown, FileUp, GitCompare, KanbanSquare, Newspaper, Plug, Server, ShoppingCart } from "lucide-react";
+import { ArrowRight, Blocks, BookMarked, Bot, GraduationCap, FileDown, FileUp, GitCompare, KanbanSquare, Newspaper, Pencil, Plug, Server, ShoppingCart } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import agentArt from "../assets/agent.webp";
 import heroArt from "../assets/hero.webp";
+import bootcampArt from "../assets/badges/graduate.webp";
+import { Markdown } from "../components/Markdown";
 import { Dialog, ErrorBox, Field, KindIcon, Spinner, useAsync } from "../components/ui";
 import { call, errorMessage } from "../lib/api";
 import { createTableSql, type SqlKind } from "../lib/ddlgen";
 import { CONSOLE_KINDS, consoleStart, kindLabel } from "../lib/format";
 import { TEMPLATES, type SchemaTemplate } from "../lib/templates";
-import { useStore } from "../lib/store";
+import { attempt, openBootcamp, useStore } from "../lib/store";
 import type { MockDef, MockStatus, SnapshotInfo } from "../lib/types";
 
 const TEMPLATE_ICONS: Record<string, ReactNode> = {
@@ -24,6 +26,7 @@ export function HomeView() {
   const openDialog = useStore((s) => s.openDialog);
   const openTab = useStore((s) => s.openTab);
   const setRail = useStore((s) => s.setRail);
+  const inBootcamp = useStore((s) => !!s.bootcamp?.active);
   const snapshots = useAsync(() => call<SnapshotInfo[]>("schema.snapshot.list"), [ws?.path]);
   const [template, setTemplate] = useState<SchemaTemplate | null>(null);
   if (!ws) return null;
@@ -89,6 +92,8 @@ export function HomeView() {
           </div>
         </div>
 
+        <WorkspaceReadme />
+
         {recent.length > 0 && (
           <>
             <div className="section-head">
@@ -145,6 +150,21 @@ export function HomeView() {
         </div>
 
         <div className="section-head">
+          <h2>Learn databases</h2>
+          <span className="sub">Lessons, quizzes and hands-on labs, with XP and badges.</span>
+        </div>
+        <div className="banner bootcamp-banner">
+          <img src={bootcampArt} alt="" draggable={false} />
+          <div>
+            <h3>{inBootcamp ? "You are in the Bootcamp workspace" : "TwinBase Bootcamp"}</h3>
+            <p>From your first SELECT to indexes, transactions, Redis caching, sharding and vector search. Labs run on mock servers in a workspace of their own, so your projects stay untouched.</p>
+          </div>
+          <button className="btn primary" onClick={() => attempt("Could not open the Bootcamp", () => openBootcamp())}>
+            <GraduationCap size={14} /> {inBootcamp ? "Open lessons" : "Start learning"} <ArrowRight size={14} />
+          </button>
+        </div>
+
+        <div className="section-head">
           <h2>Work with AI agents</h2>
         </div>
         <div className="banner">
@@ -173,6 +193,29 @@ export function HomeView() {
       </div>
       {template && <TemplateDialog template={template} onClose={() => setTemplate(null)} />}
     </div>
+  );
+}
+
+/** The workspace README (README.md in the folder), shown when it exists. */
+function WorkspaceReadme() {
+  const ws = useStore((s) => s.workspace);
+  const openTab = useStore((s) => s.openTab);
+  const readme = useAsync(() => call<{ docs: string }>("docs.get", {}).then((r) => r.docs), [ws]);
+  return (
+    <>
+      <div className="section-head">
+        <h2>About this workspace</h2>
+        <span className="sub">README.md in the workspace folder.</span>
+        <button className="btn sm ghost" style={{ marginLeft: "auto" }} onClick={() => openTab({ kind: "docs" })}>
+          <Pencil size={13} /> {readme.data?.trim() ? "Edit" : "Write a README"}
+        </button>
+      </div>
+      {readme.data?.trim() ? (
+        <Markdown source={readme.data} className="card readme-card" />
+      ) : (
+        <div className="card readme-card faint small">No README yet. Describe what this workspace is for so teammates (and AI agents) know where to start.</div>
+      )}
+    </>
   );
 }
 

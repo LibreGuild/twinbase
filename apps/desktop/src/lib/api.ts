@@ -98,3 +98,9 @@ export function errorMessage(e: unknown): string {
   }
   return e instanceof Error ? e.message : String(e);
 }
+
+/** Open a web link or an editor deep link in the system's default handler. */
+export async function openExternal(url: string): Promise<void> {
+  if (isTauri) await call("app.open_url", { url });
+  else window.open(url, "_blank", "noopener,noreferrer");
+}
