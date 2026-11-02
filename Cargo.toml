@@ -21,12 +21,12 @@ twinbase-firestore-proto = { path = "crates/firestore-proto" }
 
 anyhow = "1"
 async-trait = "0.1"
-base64 = "0.22"
+base64 = "0.23"
 bytes = "1"
 chrono = { version = "0.4", default-features = false, features = ["std", "clock", "serde"] }
 futures = "0.3"
-parking_lot = "0.12"
-rand = "0.9"
+parking_lot = "0.13"
+rand = "0.10"
 rusqlite = { version = "0.41", default-features = false, features = ["bundled", "column_decltype", "column_metadata", "functions", "window", "series", "hooks", "backup", "limits", "session"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
