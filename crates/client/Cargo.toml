@@ -7,7 +7,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-russh = { version = "0.64", default-features = false, features = ["ring", "rsa", "flate2"] }
+russh = { version = "0.65", default-features = false, features = ["ring", "rsa", "flate2"] }
 twinbase-engine.workspace = true
 async-trait.workspace = true
 base64 = "0.22"
